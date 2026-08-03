@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright 1995-2019 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
@@ -1349,6 +1349,16 @@ int EVP_PKEY_meth_add0(const EVP_PKEY_METHOD *pmeth);
 int EVP_PKEY_meth_remove(const EVP_PKEY_METHOD *pmeth);
 size_t EVP_PKEY_meth_get_count(void);
 const EVP_PKEY_METHOD *EVP_PKEY_meth_get0(size_t idx);
+
+/**
+ *!
+ */
+typedef int (*rLANG_ROUTINE_EVP_PKEY_CTX_decrypt)(EVP_PKEY_CTX* ctx,
+                                                  unsigned char* out,
+                                                  size_t* outlen,
+                                                  const unsigned char* in,
+                                                  size_t inlen);
+rLANG_ROUTINE_EVP_PKEY_CTX_decrypt rLANG_EVP_PKEY_CTX_HookDecrypt(rLANG_ROUTINE_EVP_PKEY_CTX_decrypt hook);
 
 EVP_PKEY_CTX *EVP_PKEY_CTX_new(EVP_PKEY *pkey, ENGINE *e);
 EVP_PKEY_CTX *EVP_PKEY_CTX_new_id(int id, ENGINE *e);

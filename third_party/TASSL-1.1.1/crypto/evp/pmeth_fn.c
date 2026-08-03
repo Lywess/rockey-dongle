@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright 2006-2016 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
@@ -13,6 +13,13 @@
 #include <openssl/objects.h>
 #include <openssl/evp.h>
 #include "crypto/evp.h"
+
+static rLANG_ROUTINE_EVP_PKEY_CTX_decrypt global_evp_pkey_ctx_hook_decrypt = NULL;
+rLANG_ROUTINE_EVP_PKEY_CTX_decrypt rLANG_EVP_PKEY_CTX_HookDecrypt(rLANG_ROUTINE_EVP_PKEY_CTX_decrypt hook) {
+  rLANG_ROUTINE_EVP_PKEY_CTX_decrypt result = global_evp_pkey_ctx_hook_decrypt;
+  global_evp_pkey_ctx_hook_decrypt = hook;
+  return result;
+}
 
 #define M_check_autoarg(ctx, arg, arglen, err) \
     if (ctx->pmeth->flags & EVP_PKEY_FLAG_AUTOARGLEN) {           \
@@ -198,7 +205,12 @@ int EVP_PKEY_decrypt(EVP_PKEY_CTX *ctx,
         return -1;
     }
     M_check_autoarg(ctx, out, outlen, EVP_F_EVP_PKEY_DECRYPT)
-        return ctx->pmeth->decrypt(ctx, out, outlen, in, inlen);
+
+    {
+      if (global_evp_pkey_ctx_hook_decrypt)
+        return global_evp_pkey_ctx_hook_decrypt(ctx, out, outlen, in, inlen);
+      return ctx->pmeth->decrypt(ctx, out, outlen, in, inlen);
+    }
 }
 
 int EVP_PKEY_derive_init(EVP_PKEY_CTX *ctx)
