@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright 2006-2019 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
@@ -104,7 +104,7 @@ static int pkey_ec_sign(EVP_PKEY_CTX *ctx, unsigned char *sig, size_t *siglen,
     unsigned int sltmp;
     EC_PKEY_CTX *dctx = ctx->data;
     EC_KEY *ec = ctx->pkey->pkey.ec;
-    const int sig_sz = ECDSA_size(ec);
+    const int sig_sz = sltmp = ECDSA_size(ec);
 
     /* ensure cast to size_t is safe */
     if (!ossl_assert(sig_sz > 0))
