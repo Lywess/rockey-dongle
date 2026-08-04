@@ -102,13 +102,14 @@ rLANGWASMEXPORT EVP_PKEY* rLANGAPI RockeyPKEY_RSA_New(uint32_t E, const uint8_t 
       return 1;
     };
     override_.rsa_priv_enc = [](int flen, const unsigned char* from, unsigned char* to, RSA* rsa, int padding) {
+      int size = RSA_size(rsa);  // Checked to[size]
       const auto* rockey = static_cast<const Rockey_RSA*>(rsa);
-      int result = rockey->pkey->Sign(padding, from, flen, to, 256);
+      int result = rockey->pkey->Sign(padding, from, flen, to, size);
       if (result < 0) {
         rlLOGE(TAG, "Rockey.RSA.sign Error %d", result);
         return -2;
       }
-      return 256;
+      return size;
     };
   }
 

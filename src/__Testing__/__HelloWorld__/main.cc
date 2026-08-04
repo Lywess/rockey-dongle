@@ -483,14 +483,14 @@ void SM2_Tests() {
     int r1 = EVP_PKEY_encrypt_init(ctx);
     int r2 = EVP_PKEY_encrypt(ctx, cipher, &size_cipher, text, sizeof(text));
 
-    rlLOGI(TAG, "SM2.encrypt %d %d %zd", r1, r2, size_cipher);
+    // rlLOGI(TAG, "SM2.encrypt %d %d %zd", r1, r2, size_cipher);
     if (1 != r1 || 1 != r2)
       abort();
 
     int r3 = EVP_PKEY_decrypt_init(ctx);
     int r4 = EVP_PKEY_decrypt(ctx, verify, &size_verify, cipher, size_cipher);
     bool ok = 1 == r3 && 1 == r4 && size_verify == 48 && 0 == memcmp(text, verify, 48);
-    rlLOGI(TAG, "SM2.decrypt %d %d %zd %c", r3, r4, size_verify, ok ? 'T' : 'F');
+    // rlLOGI(TAG, "SM2.decrypt %d %d %zd %c", r3, r4, size_verify, ok ? 'T' : 'F');
 
     if (!ok)
       abort();
