@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright 2006-2021 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
@@ -185,7 +185,7 @@ static int pkey_sm2_sign(EVP_PKEY_CTX *ctx, unsigned char *sig, size_t *siglen,
     int ret;
     unsigned int sltmp;
     EC_KEY *ec = ctx->pkey->pkey.ec;
-    const int sig_sz = ECDSA_size(ctx->pkey->pkey.ec);
+    const int sig_sz = sltmp  = ECDSA_size(ctx->pkey->pkey.ec);
 
     if (sig_sz <= 0) {
         return 0;
