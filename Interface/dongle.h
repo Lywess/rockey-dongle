@@ -443,12 +443,14 @@ public:
 
  public:
   int CheckError(DWORD error);
+#if !defined(__RockeyARM__)
   int CheckError(DWORD error, const char* expr) {
     int result = CheckError(error);
     if (result < 0)
       rlLOGE(rLANG_WORLD_MAGIC, "DONGLE.EXEC '%s' Error %08X", expr, error);
     return result;
   }
+#endif /* __RockeyARM__ */
 
   static void Abort();
   static void Verify(bool result, const char* expr) {
@@ -463,7 +465,11 @@ public:
 #endif /* DONGLE_VERIFY */
 
 #ifndef DONGLE_CHECK
+#if defined(__RockeyARM__)
+#define DONGLE_CHECK(expr) CheckError((expr))
+#else /* __RockeyARM__ */
 #define DONGLE_CHECK(expr) CheckError((expr), #expr)
+#endif /* __RockeyARM__ */
 #endif /* DONGLE_CHECK */
 };
 

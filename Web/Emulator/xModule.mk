@@ -29,7 +29,7 @@ $(call call_add_optimize_module)
 $(call wasm_add_ldflags, --no-entry)
 
 $(call add_general_source_files_under, $(LOCAL_PATH))
-$(call module_depends, rockey base)
+$(call module_depends, rockey pki base)
 $(call build-executable)
 
 endif ## emscripten

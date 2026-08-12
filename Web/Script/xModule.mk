@@ -1,3 +1,5 @@
+﻿ifeq ("$(X4C_BUILD)","emscripten")
+
 LOCAL_PATH := $(my-dir)
 
 $(call clear-local-vars)
@@ -32,3 +34,4 @@ $(call add_general_source_files_under, $(LOCAL_PATH))
 $(call module_depends, base)
 $(call build-executable)
 
+endif ## emscripten ...

@@ -57,6 +57,11 @@ console.assert(
 );
 console.assert(kErrno_ENOENT === 44 && kErrno_ENOMEM == 48);
 
+export interface RockeyPKEY {
+  Sign(dgst: Buffer, result: Buffer): integer;
+  Decrypt(cipher: Buffer, result: Buffer): integer;
+}
+
 export interface RockeyEmulator {
   RANDSeedBytes(v: any): void;
 
@@ -134,6 +139,19 @@ export interface RockeyEmulator {
   ComputeSecretSecp256k1(point: Buffer, privateKey: Buffer): Buffer;
   SignMessageSecp256k1(hash: Buffer, privateKey: Buffer): Buffer;
   VerifySignSecp256k1(point: Buffer, hash: Buffer, sign: Buffer): boolean;
+
+  RockeyClear(pkey: integer): integer;
+  RockeyCreateRSA(
+    pkey: integer,
+    provider: RockeyPKEY,
+    E: integer,
+    N: Buffer,
+  ): integer;
+  RockeyCreateP256(pkey: integer, provider: RockeyPKEY, point: Buffer): integer;
+  RockeyCreateSM2(pkey: integer, provider: RockeyPKEY, point: Buffer): integer;
+
+  RockeySign(pkey: integer, hash: Buffer): Buffer;
+  RockeyDecrypt(pkey: integer, cipher: Buffer): Buffer;
 }
 
 interface Native0_ {
@@ -399,6 +417,17 @@ interface Native0_ {
     R: Addr,
     S: Addr,
   ): integer;
+
+  RockeyPKEY_Clear(pkey: integer): integer;
+  RockeyPKEY_CreateRSA(
+    pkey: integer,
+    E: integer,
+    N: Addr,
+    nlen: integer,
+  ): integer;
+
+  RockeyPKEY_CreateP256(pkey: integer, X: Addr, Y: Addr): integer;
+  RockeyPKEY_CreateSM2(pkey: integer, X: Addr, Y: Addr): integer;
 }
 
 export type CreateEmulatorOption = {
@@ -638,6 +667,46 @@ export async function CryptoLoader(jsCipher: CipherSuiteV0) {
       return -kErrno_ESPIPE;
     }
 
+    const all_rockey_pkey = new Map<integer, RockeyPKEY>();
+
+    function RockeyPKEY_Sign(
+      pkey: integer,
+      dgst: Addr,
+      dlen: integer,
+      sign: Addr,
+      signlen: integer,
+    ) {
+      try {
+        return all_rockey_pkey
+          .get(pkey)!
+          .Sign(
+            HEAP.subarray(dgst, dgst + dlen),
+            HEAP.subarray(sign, sign + signlen),
+          );
+      } catch (err) {
+        return -2;
+      }
+    }
+
+    function RockeyPKEY_Decrypt(
+      pkey: integer,
+      out: Addr,
+      outlen: integer,
+      in_: Addr,
+      inlen: integer,
+    ) {
+      try {
+        return all_rockey_pkey
+          .get(pkey)!
+          .Decrypt(
+            HEAP.subarray(in_, in_ + inlen),
+            HEAP.subarray(out, out + outlen),
+          );
+      } catch (err) {
+        return -2;
+      }
+    }
+
     const instance = await WebAssembly.instantiate(wasmModule_, {
       rLANG: {
         jsLogWrite,
@@ -647,6 +716,9 @@ export async function CryptoLoader(jsCipher: CipherSuiteV0) {
         SetDongleLEDState,
         LoadDongleFile,
         WriteDongleFile,
+
+        RockeyPKEY_Sign,
+        RockeyPKEY_Decrypt,
       },
       wasi_snapshot_preview1: {
         clock_time_get,
@@ -717,6 +789,10 @@ export async function CryptoLoader(jsCipher: CipherSuiteV0) {
       EmuComputeSecretSecp256k1,
       EmuSignMessageSecp256k1,
       EmuVerifySignSecp256k1,
+      RockeyPKEY_Clear,
+      RockeyPKEY_CreateRSA,
+      RockeyPKEY_CreateP256,
+      RockeyPKEY_CreateSM2,
       Initialize,
       RANDSeedBytes,
       MemoryManager,
@@ -1404,7 +1480,7 @@ export async function CryptoLoader(jsCipher: CipherSuiteV0) {
             `dongle.SM2Decrypt invalid cipher size ${cipher.length}`,
           );
 
-        let result : number;
+        let result: number;
         const stack = emscripten_stack_get_current();
         const frame = _emscripten_stack_alloc(4096 + 256);
         const addr_cipher = frame + 3072;
@@ -1512,7 +1588,7 @@ export async function CryptoLoader(jsCipher: CipherSuiteV0) {
             `dongle.SM4ECB invalid message size ${size}`,
           );
 
-        let result : number;
+        let result: number;
         const stack = emscripten_stack_get_current();
         const frame = _emscripten_stack_alloc(2048);
         input.copy(HEAP, frame);
@@ -1935,6 +2011,94 @@ export async function CryptoLoader(jsCipher: CipherSuiteV0) {
         _emscripten_stack_restore(stack);
 
         return 0 === result;
+      }
+
+      RockeyClear(pkey: integer): integer {
+        if (pkey != (pkey | 0) || pkey < 0 || pkey > 0xffff)
+          throw jsCipher.Annihilus_(`Invalid pkey: ${pkey}`);
+        all_rockey_pkey.delete(pkey);
+        return RockeyPKEY_Clear(pkey);
+      }
+
+      RockeyCreateRSA(
+        pkey: integer,
+        provider: RockeyPKEY,
+        E: integer,
+        N: Buffer,
+      ): integer {
+        if (pkey != (pkey | 0) || pkey < 0 || pkey > 0xffff)
+          throw jsCipher.Annihilus_(`Invalid pkey: ${pkey}`);
+        if (N.length < 256 || N.length > 2048)
+          throw jsCipher.Annihilus_(`Invalid N length: ${N.length}`);
+
+        const stack = emscripten_stack_get_current();
+        const frame = _emscripten_stack_alloc(4096);
+        N.copy(HEAP, frame);
+        const result = RockeyPKEY_CreateRSA(pkey, E, frame, N.length);
+        _emscripten_stack_restore(stack);
+
+        if (result < 0)
+          throw jsCipher.Annihilus_(`RockeyPKEY_CreateRSA failed: ${result}`);
+        all_rockey_pkey.set(pkey, provider);
+        return 0;
+      }
+
+      RockeyCreateP256(
+        pkey: integer,
+        provider: RockeyPKEY,
+        point: Buffer,
+      ): integer {
+        if (pkey != (pkey | 0) || pkey < 0 || pkey > 0xffff)
+          throw jsCipher.Annihilus_(`Invalid pkey: ${pkey}`);
+
+        if (point.length != 64)
+          throw jsCipher.Annihilus_(
+            `Invalid P256.point length: ${point.length}`,
+          );
+
+        const stack = emscripten_stack_get_current();
+        const frame = _emscripten_stack_alloc(256);
+        point.copy(HEAP, frame);
+        const result = RockeyPKEY_CreateP256(pkey, frame, frame + 32);
+        _emscripten_stack_restore(stack);
+
+        if (result < 0)
+          throw jsCipher.Annihilus_(`Invalid RockeyCreateP256: ${result}`);
+        all_rockey_pkey.set(pkey, provider);
+        return 0;
+      }
+
+      RockeyCreateSM2(
+        pkey: integer,
+        provider: RockeyPKEY,
+        point: Buffer,
+      ): integer {
+        if (pkey != (pkey | 0) || pkey < 0 || pkey > 0xffff)
+          throw jsCipher.Annihilus_(`Invalid pkey: ${pkey}`);
+
+        if (point.length != 64)
+          throw jsCipher.Annihilus_(
+            `Invalid SM2.point length: ${point.length}`,
+          );
+
+        const stack = emscripten_stack_get_current();
+        const frame = _emscripten_stack_alloc(256);
+        point.copy(HEAP, frame);
+        const result = RockeyPKEY_CreateSM2(pkey, frame, frame + 32);
+        _emscripten_stack_restore(stack);
+
+        if (result < 0)
+          throw jsCipher.Annihilus_(`Invalid RockeyPKEY_CreateSM2: ${result}`);
+        all_rockey_pkey.set(pkey, provider);
+        return 0;
+      }
+
+      RockeySign(pkey: integer, hash: Buffer): Buffer {
+        throw jsCipher.Annihilus_(`Not implemented: RockeySign`);
+      }
+
+      RockeyDecrypt(pkey: integer, cipher: Buffer): Buffer {
+        throw jsCipher.Annihilus_(`Not implemented: RockeyDecrypt`);
       }
     }
 
