@@ -57,6 +57,51 @@ console.assert(
 );
 console.assert(kErrno_ENOENT === 44 && kErrno_ENOMEM == 48);
 
+/**
+ *!
+ */
+export type ASN1Value =
+  | null /// V_ASN1_NULL ...
+  | boolean /// V_ASN1_BOOLEAN ...
+  | integer /// V_ASN1_INTEGER, unsigned, [0, 0x7fffffff] ...
+  | bigint /// V_ASN1_INTEGER, unsigned ...
+  | Date /// V_ASN1_UTCTIME | V_ASN1_GENERALIZEDTIME ...
+  | { type: integer; value: string | Buffer | ASN1Value[] };
+
+/**
+ *!
+ */
+export const enum V_ASN1 {
+  EOC = 0,
+  BOOLEAN = 1,
+  INTEGER = 2,
+  BIT_STRING = 3,
+  OCTET_STRING = 4,
+  NULL = 5,
+  OBJECT = 6,
+  OBJECT_DESCRIPTOR = 7,
+  EXTERNAL = 8,
+  REAL = 9,
+  ENUMERATED = 10,
+  UTF8STRING = 12,
+  SEQUENCE = 16,
+  SET = 17,
+  NUMERICSTRING = 18,
+  PRINTABLESTRING = 19,
+  T61STRING = 20,
+  TELETEXSTRING = 20,
+  VIDEOTEXSTRING = 21,
+  IA5STRING = 22,
+  UTCTIME = 23,
+  GENERALIZEDTIME = 24,
+  GRAPHICSTRING = 25,
+  ISO64STRING = 26,
+  VISIBLESTRING = 26,
+  GENERALSTRING = 27,
+  UNIVERSALSTRING = 28,
+  BMPSTRING = 30,
+}
+
 export interface RockeyPKEY {
   Sign(dgst: Buffer, result: Buffer): integer;
   Decrypt(cipher: Buffer, result: Buffer): integer;
@@ -152,6 +197,9 @@ export interface RockeyEmulator {
 
   RockeySign(pkey: integer, hash: Buffer): Buffer;
   RockeyDecrypt(pkey: integer, cipher: Buffer): Buffer;
+
+  ASN1Decode(input: Buffer): [value: ASN1Value, size: integer];
+  ASN1Encode(value: ASN1Value): Buffer;
 }
 
 interface Native0_ {
@@ -476,6 +524,265 @@ export async function CryptoLoader(jsCipher: CipherSuiteV0) {
   const wasmModule_ = await WebAssembly.compile(jsCryptoText.Assets());
   async function ParseScript(script: string) {
     return await jsScript.Parse(script);
+  }
+
+  function ASN1Decode(input: Buffer): [value: ASN1Value, size: integer] {
+    function ToDate(type: integer, value: Buffer): Date {
+      function get2(off: integer) {
+        return (value[off] - 0x30) * 10 + value[off + 1] - 0x30;
+      }
+      function get4(off: integer) {
+        let r = 0;
+        for (let i = 0; i < 4; ++i) r = r * 10 + value[off + i] - 0x30;
+        return r;
+      }
+
+      const vlen = value.length - 1;
+      let error = 0;
+      if (0x5a !== value[vlen]) {
+        ++error;
+      }
+      for (let i = 0; i < vlen; ++i) {
+        if (value[i] < 0x30 || value[i] > 0x39) ++error;
+      }
+
+      if (error || (type === 23 && vlen !== 12) || (type === 24 && vlen !== 14))
+        throw jsCipher.Annihilus_(`Invalid ASN1 Date ${error} ${type} ${vlen}`);
+
+      const year = (() => {
+        if (type === 23) {
+          /// [1950, 2149]
+          const v = get2(0);
+          if (v <= 49) return 2000 + v;
+          return 1900 + v;
+        }
+        return get4(0);
+      })();
+
+      value = value.subarray(vlen - 10);
+      const month = get2(0);
+      const mday = get2(2);
+      const hour = get2(4);
+      const minute = get2(6);
+      const second = get2(8);
+
+      const result = new Date(
+        Date.UTC(year, month - 1, mday, hour, minute, second),
+      );
+
+      if (
+        year !== result.getUTCFullYear() ||
+        month !== result.getUTCMonth() + 1 ||
+        mday !== result.getUTCDate() ||
+        hour !== result.getUTCHours() ||
+        minute !== result.getUTCMinutes() ||
+        second !== result.getUTCSeconds()
+      )
+        throw jsCipher.Annihilus_(
+          `Invalid date [${year}-${month}-${mday} ${hour}:${minute}:${second}] !== ${result.toISOString()}`,
+        );
+
+      return result;
+    }
+
+    let off = 0;
+    let asn1: ASN1Value = null;
+
+    const type = input[off++];
+    const length = (function () {
+      let len = input[off++];
+      if (len & 0x80) {
+        len &= 0x7f;
+        off += len;
+        len = parseInt(input.subarray(2, 2 + len).toString("hex"), 16);
+      }
+      return len;
+    })();
+    const value = input.subarray(off, off + length);
+    off += length;
+
+    if (off > input.length)
+      throw jsCipher.Annihilus_(
+        `ASN1Decode: Invalid input ${off} / ${input.length}`,
+      );
+
+    switch (type) {
+      case V_ASN1.BOOLEAN:
+        asn1 = length === 1 && value[0] !== 0;
+        break;
+
+      case V_ASN1.INTEGER:
+        asn1 = BigInt(`0x${value.toString("hex")}`);
+        if (asn1 >= 0 && asn1 <= 0x7fffffffn) asn1 = Number(asn1);
+        break;
+
+      case V_ASN1.NULL:
+        break;
+
+      case V_ASN1.UTF8STRING:
+      case V_ASN1.NUMERICSTRING:
+      case V_ASN1.PRINTABLESTRING:
+      case V_ASN1.IA5STRING:
+      case V_ASN1.VISIBLESTRING:
+        asn1 = { type, value: value.toString() };
+        break;
+
+      case V_ASN1.UTCTIME:
+      case V_ASN1.GENERALIZEDTIME:
+        asn1 = ToDate(type, value);
+        break;
+
+      default:
+        if ((type >= 0x30 && type <= 0x31) || (type >= 0xa0 && type <= 0xa1)) {
+          let off = 0;
+          const vlen = value.length;
+          const list = <ASN1Value[]>[];
+          asn1 = { type, value: list };
+
+          while (off < vlen) {
+            const [v, sz] = ASN1Decode(value.subarray(off));
+            off += sz;
+            list.push(v);
+          }
+        } else {
+          asn1 = { type, value };
+        }
+        break;
+    }
+
+    return [asn1, off];
+  }
+
+  function ASN1Encode(value: ASN1Value): Buffer {
+    let sizeLeft = 2 ** 24;
+    const result = <Buffer[]>[];
+
+    function push(v: Buffer | Array<integer>) {
+      sizeLeft -= v.length;
+      if (sizeLeft < 0) throw jsCipher.Annihilus_("ASN1Encode: too large");
+      if (Array.isArray(v)) result.push(Buffer.from(v));
+      else result.push(v);
+    }
+
+    function enc_int(v: bigint) {
+      if (v < 0) v = -v; /// unsigned only ...
+
+      let buf: Buffer;
+      const s = v.toString(16);
+      const sz = s.length;
+
+      if (sz & 1) {
+        buf = Buffer.alloc(1 + (sz >>> 1));
+        buf[0] = parseInt(s[0], 16);
+        Buffer.from(s.slice(1), "hex").copy(buf, 1);
+      } else if (s[0] >= "8") {
+        buf = Buffer.alloc(1 + (sz >>> 1));
+        Buffer.from(s, "hex").copy(buf, 1);
+      } else {
+        buf = Buffer.from(s, "hex");
+      }
+
+      enc_buf(buf, V_ASN1.INTEGER);
+    }
+
+    function enc_len(len: integer, type: integer): Buffer {
+      if (len < 0x80) return Buffer.from([type, len]);
+      else if (len <= 0xff) return Buffer.from([type, 0x81, len]);
+      else if (len <= 0xffff)
+        return Buffer.from([type, 0x82, len >>> 8, len & 0xff]);
+      else if (len <= 0xffffff)
+        return Buffer.from([
+          type,
+          0x83,
+          len >>> 16,
+          (len >>> 8) & 0xff,
+          len & 0xff,
+        ]);
+      else throw jsCipher.Annihilus_(`length > 0xffffff`);
+    }
+    function enc_buf(v: Buffer, type: integer) {
+      push(enc_len(v.length, type));
+      push(v);
+    }
+
+    function enc_date(v: Date) {
+      let off = 0;
+      const year = v.getUTCFullYear();
+      const type =
+        year >= 1950 && year < 2050 ? V_ASN1.UTCTIME : V_ASN1.GENERALIZEDTIME;
+      const buf = Buffer.alloc(type == V_ASN1.UTCTIME ? 13 : 15);
+      function i2(v: integer) {
+        buf[off++] = (0x30 + v / 10) | 0;
+        buf[off++] = 0x30 + (v % 10);
+      }
+
+      if (year >= 1950 && year < 2050) {
+        i2(year % 100);
+      } else if (year >= 0 && year <= 9999) {
+        i2((year / 100) | 0);
+        i2(year % 100);
+      } else {
+        throw jsCipher.Annihilus_(`Invalid date: ${v.toISOString()}`);
+      }
+
+      i2(v.getUTCMonth() + 1);
+      i2(v.getUTCDate());
+      i2(v.getUTCHours());
+      i2(v.getUTCMinutes());
+      i2(v.getUTCSeconds());
+      buf[off++] = 0x5a; /// 'Z'
+
+      enc_buf(buf, type);
+    }
+
+    function enc_list(list: ASN1Value[], type: integer) {
+      let size = 0;
+      const off = result.length++;
+
+      sizeLeft -= 6; /// max, ignore error ...
+      for (const value of list) enc(value);
+      for (const value of result.slice(off + 1)) size += value.length;
+      result[off] = enc_len(size, type);
+    }
+
+    function enc(value: ASN1Value) {
+      switch (typeof value) {
+        case "boolean":
+          push(Buffer.from([V_ASN1.BOOLEAN, 0x01, value ? 0xff : 0x00]));
+          break;
+
+        case "number":
+          enc_int(BigInt(value | 0));
+          break;
+
+        case "bigint":
+          enc_int(value);
+          break;
+
+        case "object":
+          if (value == null) {
+            push(Buffer.from([V_ASN1.NULL, 0x00]));
+          } else if (value instanceof Date) {
+            enc_date(value);
+          } else {
+            const type = value.type | 0;
+            const v = value.value;
+
+            if (Array.isArray(v)) enc_list(v, type);
+            else if (typeof v === "string") enc_buf(Buffer.from(v), type);
+            else if (v instanceof Buffer) enc_buf(v, type);
+            else throw jsCipher.Annihilus_(`Invalid value ${v}, type ${type}`);
+          }
+          break;
+
+        default:
+          throw jsCipher.Annihilus_(`Invalid ASN1.value ${value}!`);
+      }
+    }
+
+    enc(value);
+
+    return Buffer.concat(result);
   }
 
   async function CreateEmulator(
@@ -2099,6 +2406,13 @@ export async function CryptoLoader(jsCipher: CipherSuiteV0) {
 
       RockeyDecrypt(pkey: integer, cipher: Buffer): Buffer {
         throw jsCipher.Annihilus_(`Not implemented: RockeyDecrypt`);
+      }
+
+      ASN1Decode(input: Buffer): [value: ASN1Value, size: integer] {
+        return ASN1Decode(input);
+      }
+      ASN1Encode(value: ASN1Value): Buffer {
+        return ASN1Encode(value);
       }
     }
 

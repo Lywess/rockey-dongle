@@ -690,7 +690,94 @@ window.onload = async function () {
     }
   };
 
+  async function ASN1Tests() {
+    const X509 = `
+-----BEGIN CERTIFICATE-----
+MIIHhTCCBW2gAwIBAgIQA5YlmralcaApMy+hfu20RDANBgkqhkiG9w0BAQsFADBb
+MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xMzAxBgNVBAMT
+Kkdlb1RydXN0IEcyIFRMUyBDTiBSU0E0MDk2IFNIQTI1NiAyMDIyIENBMTAeFw0y
+NTEyMTEwMDAwMDBaFw0yNjEyMTAyMzU5NTlaMGwxCzAJBgNVBAYTAkNOMRIwEAYD
+VQQIDAnljJfkuqzluIIxMzAxBgNVBAoMKuaZuuiAheWbm+a1t++8iOWMl+S6rO+8
+ieaKgOacr+aciemZkOWFrOWPuDEUMBIGA1UEAwwLKi56aGlodS5jb20wggEiMA0G
+CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCbnGwA7+XumLn8ARcRsD/3Hx1LGEKt
+kHb9SmH8YHP/YQR0OM62xfk8YJ+f0JrlJGKvR2X7XVyXB/QYgo/XaNxdH7v8ukkc
+ZR4bzNNbOIuJN9NnUZRltp2nV7DsrwEhEHLQNJl2iTwg2Wh9XGm0mj4zRi9EUFAo
+Ptj6GbPVC+g3Z8yZUH4eyeev+JuUB2hOVBf2qA6CvPtbmzxB1S8C98CiZczs/RKx
+KNBHyUSVgtU32s2gprLVr0Cb6CHzFOxhb/0fYFlXLcZ3qo+ghCsZLjwhkL3CIa23
+tpOt2CJQ7Laxu4LRDnBJy2+etGP8axL6nXqRuQgIUsjzw50lTUc+d+gRAgMBAAGj
+ggMyMIIDLjAfBgNVHSMEGDAWgBRBTo5pnfRuJex4FBx+180dmc/5azAdBgNVHQ4E
+FgQUGArQmoT8MLJyzWsvTyzVRvf03XUwIQYDVR0RBBowGIILKi56aGlodS5jb22C
+CXpoaWh1LmNvbTA+BgNVHSAENzA1MDMGBmeBDAECAjApMCcGCCsGAQUFBwIBFhto
+dHRwOi8vd3d3LmRpZ2ljZXJ0LmNvbS9DUFMwDgYDVR0PAQH/BAQDAgWgMBMGA1Ud
+JQQMMAoGCCsGAQUFBwMBME8GA1UdHwRIMEYwRKBCoECGPmh0dHA6Ly9jcmwuZGln
+aWNlcnQuY24vR2VvVHJ1c3RHMlRMU0NOUlNBNDA5NlNIQTI1NjIwMjJDQTEuY3Js
+MIGDBggrBgEFBQcBAQR3MHUwIwYIKwYBBQUHMAGGF2h0dHA6Ly9vY3NwLmRpZ2lj
+ZXJ0LmNuME4GCCsGAQUFBzAChkJodHRwOi8vY2FjZXJ0cy5kaWdpY2VydC5jbi9H
+ZW9UcnVzdEcyVExTQ05SU0E0MDk2U0hBMjU2MjAyMkNBMS5jcnQwDAYDVR0TAQH/
+BAIwADCCAX0GCisGAQQB1nkCBAIEggFtBIIBaQFnAHYA1219ENGn9XfCx+lf1wC/
++YLJM1pl4dCzAXMXwMjFaXcAAAGbC96MXQAABAMARzBFAiB03vrvB/TGCZtmLrOu
+8wgk5T1adD/gltJ01fRrNPimPwIhAKU7kUy6HFvt49kbgGTAYujodhA+XD1RJ95R
+syG9iclFAHQAyKPEf8ezrbk1awE/anoSbeM6TkOlxkb5l605dZkdz5oAAAGbC96M
+iwAABAMARTBDAiA/L/fdXYUWVMdkpQOpE9N5DzWmaNfQparrndyRNfi7CQIfNLB3
+edZ1pNZBwU44LkMpaFbbvvIpVdXcl8cjqyPhKQB3AMIxfldFGaNF7n843rKQQevH
+wiFaIr9/1bWtdprZDlLNAAABmwvejIoAAAQDAEgwRgIhAKsrvSdmtYr9ZezP6N1k
+dssg/dw7mhRligHVtKA9sUPuAiEAk31R62lZvL4QaRWj1FEp2P0hDkKBbKN2IF3H
+HJUtm2swDQYJKoZIhvcNAQELBQADggIBAC+rpj4aOWE5wBbwxJQ4pBIFMK8hKxUM
+dIOf6aU4DOuBFriz5fhJjCFy4q7WoK1KBXLwmY7vASvZm/Ms9WJ6/Ljsc9q0rUHj
+gRcH7q1JvmB0jNhinTgKZQcUOEzGApITpL/OXY6QoST8vH42rclZA1S6puzJhGXP
+rNXd3ZUisFAUFuT0nElaGZIvc7tcFQZJGQmWdxfE/wAqf8ymU+V0t1YLbYC3yBrn
+upI2dcz7pllaAUFLFGXb5GFWtEa8SLy9bPwiO/31LhE6YA479WaqJGLgQOZj0dXP
+WygZvlbnH9LC94UW0XQf6a0T5cXClXo+icFxBTazTt2LPlg6qmJgpbYbtbu90asz
+HKz1TSs5zsMMBYyAOPDryPcxPlIvfVW7OYm0HV5xc0Rfu+KthufF14XiOUPtVdwv
+E6jivuWBbGm393htvh+l3n8upc65ZG78QfFvwisWab+7btjvBU59xknMJni86LrQ
+cehI1aFkMTQzLWQh3/J/nocXvS09b0wepPnnQL54TH5yZiQtxViRUlv1pdgsjewG
+8ng59htaLZR3IsQAFdIRr6sqLUMy36UGUgdeVuNAVmndERTCTwNcQtczRHtlEaBK
+M97IQ0hGZ1ncGdmWc6BAShIDB2UcT0Vy9FpOjv7iJAn2pfoNU59m7wAzD1JmOso3
+qiDXs9aO/KUn
+-----END CERTIFICATE-----
+`;
+
+    const der = Buffer.from(X509.replaceAll(/^----.*----$/gm, ""), "base64");
+    console.log(`DER size ${der.length}`);
+
+    const [asn1, size] = jsEmulator.ASN1Decode(der);
+    console.assert(size === der.length);
+    console.log(asn1);
+
+    const der_pubkey = asn1.value[0].value[6].value[1];
+    console.assert(3 === der_pubkey.type && der_pubkey.value instanceof Buffer);
+    const pubkey = Buffer.from(
+      der_pubkey.value[0] === 0
+        ? der_pubkey.value.subarray(1)
+        : der_pubkey.value,
+    );
+
+    const [pubkey_asn1, pubkey_size] = jsEmulator.ASN1Decode(pubkey);
+    console.assert(pubkey_size === pubkey.length);
+    console.log(pubkey_asn1);
+
+    console.assert(asn1.value[0].value[7].type === 0xa3);
+    const der_ext_v3 = asn1.value[0].value[7].value;
+
+    const [ext_v3, ext_v3_size] = jsEmulator.ASN1Decode(der_ext_v3);
+    console.assert(ext_v3_size === der_ext_v3.length);
+    console.log(ext_v3);
+
+    const der2 = jsEmulator.ASN1Encode(asn1);
+    console.assert(der2.equals(der));
+
+    const der2_pubkey = jsEmulator.ASN1Encode(pubkey_asn1);
+    console.assert(der2_pubkey.equals(pubkey));
+
+    const der2_ext_v3 = jsEmulator.ASN1Encode(ext_v3);
+    console.assert(der2_ext_v3.equals(der_ext_v3));
+
+    console.log("done");
+  }
+
   async function EmuTests() {
+    await ASN1Tests();
+
     ///
     /// TODO: LiangLI, More Tests, 当前只用于保护 RockeyARM::(kKeyIdGlobalSM2ECIES[加密密钥/管理员签名密钥] == 4), 暂时只测试 SM2 相关操作 ...
     ///
