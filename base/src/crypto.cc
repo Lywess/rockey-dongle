@@ -1,7 +1,8 @@
-#include "../base.h"
+﻿#include "../base.h"
 
 rLANG_DECLARE_MACHINE
 
+#if 0
 // libc (memset, memcpy) ...
 namespace {
 void cipher_cleanse(void* ptr, size_t size) {
@@ -150,6 +151,29 @@ void* cipher_memmove(void* dst, const void* src, size_t length) {
 #define memcpy(m, s, n) cipher_memcpy((m), (s), (n))
 #define memmove(m, s, n) cipher_memmove((m), (s), (n))
 }  // namespace
+
+#else
+
+static void cipher_cleanse(void* ptr, size_t size) {
+  uint8_t* p = reinterpret_cast<uint8_t*>(ptr);
+  uint32_t h = rLANG_CALCHASH_Xs((char*)&ptr, sizeof(void*));
+  uint8_t v = 0xFF & h;
+  uint8_t n = 0xFF & (h >> 8);
+
+  while (size--) {
+    *p++ = v += n;
+  }
+}
+
+#undef memset
+#undef memcpy
+#undef memmove
+#define memset(m, c, n) __builtin_memset((m), (c), (n))
+#define memcpy(m, s, n) __builtin_memcpy((m), (s), (n))
+#define memmove(m, s, n) __builtin_memmove((m), (s), (n))
+
+#endif
+
 
 // SHA1 ...
 namespace {
@@ -5446,10 +5470,15 @@ rLANGEXPORT void rLANGAPI rlCryptoEd25519Sign(uint8_t out_sig[64],
   cipher_cleanse(nonce, sizeof(nonce));
   cipher_cleanse(az, sizeof(az));
 }
-rLANGEXPORT void rLANGAPI rlCryptoX25519(uint8_t out_shared_key[32],
-                                         const uint8_t private_key[32],
-                                         const uint8_t peer_public_value[32]) {
+rLANGEXPORT int rLANGAPI rlCryptoX25519(uint8_t out_shared_key[32],
+                                        const uint8_t private_key[32],
+                                        const uint8_t peer_public_value[32]) {
+  uint8_t zero = 0;
   x25519_scalar_mult(out_shared_key, private_key, peer_public_value);
+  /* RFC 7748 §6.1: reject the all-zero output (low-order point / small subgroup) */
+  for (int i = 0; i < 32; ++i)
+    zero |= out_shared_key[i];
+  return 0 == zero ? -EFAULT : 0;
 }
 rLANGEXPORT void rLANGAPI rlCryptoX25519Pubkey(uint8_t out_public_value[32], const uint8_t private_key[32]) {
   uint8_t e[32];
@@ -5497,28 +5526,6 @@ rLANGEXPORT void rLANGAPI rlCryptoRandBytes(void* p, int size) {
 
 rLANGEXPORT void rLANGAPI rlCryptoSeedBytes(const void* p, int size) {
   rlCryptoSha512CtxUpdate(&global_entropy, p, size);
-}
-
-/* for dongle */
-rLANGEXPORT void rLANGAPI rlCryptoEd25519PubkeyEx(uint8_t out_public_key[32], const uint8_t az_[32]) {
-#if 0
-  ge_p3 A;
-  uint8_t az[32];
-
-  memcpy(az, az_, sizeof(az));
-
-  az[0] &= 248;
-  az[31] &= 63;
-  az[31] |= 64;
-
-  ge_scalarmult_base(&A, az);
-  ge_p3_tobytes(out_public_key, &A);
-  cipher_cleanse(az, sizeof(az));
-#else
-  ge_p3 A;
-  ge_scalarmult_base(&A, az_);
-  ge_p3_tobytes(out_public_key, &A);
-#endif
 }
 
 rLANG_DECLARE_END

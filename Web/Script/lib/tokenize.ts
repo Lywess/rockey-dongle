@@ -22,7 +22,7 @@ const tokens = new Map<integer, integer>();
   tokens.set(scanner.Tokenize.Action.AC_OP_SHIFT_RIGHT, Token.OP_SHIFT_RIGHT);
   tokens.set(
     scanner.Tokenize.Action.AC_OP_SHIFT_RIGHT_U,
-    Token.OP_SHIFT_RIGHT_U
+    Token.OP_SHIFT_RIGHT_U,
   );
 })();
 
@@ -223,7 +223,7 @@ export class Tokenize {
         case 0 /* EOF */:
           if (this.machine_.YYSTART() === scanner.Tokenize.State.SC_MCOMM) {
             throw Error(
-              `Tokenize: Unexpected end of file found in comment line: ${this.line_}`
+              `Tokenize: Unexpected end of file found in comment line: ${this.line_}`,
             );
           }
           return 0;
@@ -244,6 +244,9 @@ export class Tokenize {
             if ("x" == YYTEXT[1] || "X" == YYTEXT[1]) {
               value = parseInt(YYTEXT.slice(2), 16);
             } else {
+              /**
+               *! 输入被严格限制为 {HEX}|{OCT}|{DEC} 格式, 这里一定不会出现 [89] ...
+               */
               value = parseInt(YYTEXT, 8);
             }
           } else {
@@ -289,7 +292,7 @@ export class Tokenize {
           throw Error(
             `BugFix Unexpected Tokenize action ${action} line: ${
               this.line_
-            } TEXT: ${this.machine_.YYTEXT()}`
+            } TEXT: ${this.machine_.YYTEXT()}`,
           );
       }
     }

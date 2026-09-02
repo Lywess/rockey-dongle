@@ -165,10 +165,10 @@ void internal_sha256_init(SHA256_CTX* ctx) {
   ctx->state[6] = 0x1f83d9ab;
   ctx->state[7] = 0x5be0cd19;
 }
-void internal_sha256_update(SHA256_CTX* ctx, const uint8_t* data, int len) {
-  int i, ii = 0x3F & ctx->datalen;
+void internal_sha256_update(SHA256_CTX* ctx, const uint8_t* data, size_t len) {
+  int ii = 0x3F & ctx->datalen;
 
-  for (i = 0; i < len; ++i) {
+  for (size_t i = 0; i < len; ++i) {
     ctx->data[ii++] = data[i];
     if (ii == 64) {
       internal_sha256_transform(ctx, ctx->data);
@@ -232,7 +232,7 @@ Sha256Ctx& Sha256Ctx::Init() {
   return *this;
 }
 Sha256Ctx& Sha256Ctx::Update(const void* input, size_t size) {
-  sha256::internal_sha256_update((sha256::SHA256_CTX*)&ctx_, static_cast<const uint8_t*>(input), (int)size);
+  sha256::internal_sha256_update((sha256::SHA256_CTX*)&ctx_, static_cast<const uint8_t*>(input), size);
   return *this;
 }
 Sha256Ctx& Sha256Ctx::Final(uint8_t md[32]) {

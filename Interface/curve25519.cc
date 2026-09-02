@@ -2192,6 +2192,11 @@ struct Helper {
   void ge_scalarmult(ge_p3* R, const uint8_t k[32], const ge_p3* point) {
     bool init = false;
 
+    /* T is the dummy accumulator — start from the neutral point, never from uninitialized memory */
+    fe_0(T.X);
+    fe_1(T.Y);
+    fe_1(T.Z);
+    fe_0(T.T);
     A = *point;
     for (int i = 0;; ++i) {
       const bool bit = k[i / 8] & (1 << (i % 8));
@@ -2243,7 +2248,7 @@ rLANG_ABIREQUIRE(sizeof(Helper) <= 1024);
 
 } // namespace ...
 
-void Curve25519::X25519(uint8_t out[32], const uint8_t scalar[32], const uint8_t point[32]) {
+int Curve25519::X25519(uint8_t out[32], const uint8_t scalar[32], const uint8_t point[32]) {
   uint8_t e[32];
   fe x1, x2, z2, x3, z3, tmp0, tmp1;
   unsigned swap = 0;
@@ -2289,7 +2294,23 @@ void Curve25519::X25519(uint8_t out[32], const uint8_t scalar[32], const uint8_t
   fe_mul(x2, x2, z2);
   fe_tobytes(out, x2);
 
-  memset(e, 0, sizeof(e));
+  /* wipe the clamped private scalar with a non-eliminable cleanse (plain memset
+   * is removed by the compiler's dead-store elimination) */
+  {
+    volatile uint8_t* ve = e;
+    for (size_t i = 0; i < sizeof(e); ++i)
+      ve[i] = 0;
+  }
+
+  /* RFC 7748 §6.1: reject the all-zero output (low-order point / small subgroup) */
+  {
+    uint8_t zero = 0;
+    for (int i = 0; i < 32; ++i)
+      zero |= out[i];
+    if (0 == zero)
+      return -EFAULT;
+  }
+  return 0;
 }
 
 void Ed25519::ComputePubkey(void* vExtBuffer, uint8_t pubkey[32], const uint8_t prikey[32]) {
@@ -2392,8 +2413,7 @@ int Dongle::ComputePubkeyCurve25519(uint8_t pubkey[32], const uint8_t prikey[32]
   return 0;
 }
 int Dongle::ComputeSecretCurve25519(uint8_t secret[32], const uint8_t prikey[32], const uint8_t pubkey[32]) {
-  Curve25519().X25519(secret, prikey, pubkey);
-  return 0;
+  return Curve25519().X25519(secret, prikey, pubkey);
 }
 
 int Dongle::GenerateKeyPairEd25519(void* vExtBuffer, uint8_t pubkey[32], uint8_t prikey[32]) {

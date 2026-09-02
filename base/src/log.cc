@@ -218,7 +218,7 @@ void platformLoggingWrite(int level, uint32_t tag, int line, const void* data, i
     if (p[-1] == '\n')
       --p;
     if (efmt)
-      sprintf(p, "%s", efmt);
+      p += sprintf(p, "%s", efmt);
     *p++ = '\n';
     *p++ = 0;
     fprintf(stderr, "%s", info);

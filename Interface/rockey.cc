@@ -8,10 +8,11 @@ rLANG_DECLARE_MACHINE
 namespace dongle {
 
 Dongle::Dongle() {
-  /**
-   *!
-   */
-  HwARandBytes((uint8_t*)entropy_local_, sizeof(entropy_local_));
+  for (int i = 0; i < 3; ++i) {
+    if (0 == HwARandBytes((uint8_t*)entropy_local_, sizeof(entropy_local_)))
+      break;
+    memset(entropy_local_, 0, sizeof(entropy_local_));
+  }
   InitializeEntropyLocal();
 
   /**
@@ -20,38 +21,6 @@ Dongle::Dongle() {
   DONGLE_INFO info;
   GetDongleInfo(&info);
   SeedBytes(&info, sizeof(info));
-}
-
-int Dongle::RandBytes(uint8_t* buffer, size_t size) {
-  union {
-    uint8_t stream[64];
-    uint32_t v_i32[16];
-  };
-
-  uint8_t* p = buffer;
-  HwARandBytes(p, size <= 128 ? size : 128);
-
-  while (size >= 64) {
-    ++entropy_local_[15];
-    rlCryptoChaCha20Block(entropy_local_, stream);
-    for (size_t i = 0; i < 64; ++i)
-      p[i] ^= stream[i];
-
-    p += 64;
-    size -= 64;
-  }
-
-  if (size > 0) {
-    ++entropy_local_[15];
-    rlCryptoChaCha20Block(entropy_local_, stream);
-    for (size_t i = 0; i < size; ++i)
-      p[i] ^= stream[i];
-  }
-
-  SHA512(buffer, size, stream);
-  for (int i = 0; i < 16; ++i)
-    entropy_local_[i] += v_i32[i];
-  return 0;
 }
 
 int Dongle::HwARandBytes(uint8_t* buffer, size_t size) {
@@ -221,36 +190,36 @@ int Dongle::ImportRSA(int id, int bits, uint32_t modules, const uint8_t public_[
 }
 
 int Dongle::GenerateP256(int id, uint8_t X[32], uint8_t Y[32], uint8_t* private_) {
-  ECCSM2_KEY_PAIR pkey;
-  if (0 != DONGLE_CHECK(ecc_genkey(id, &pkey)))
+  SecretBuffer<1, ECCSM2_KEY_PAIR> pkey;
+  if (0 != DONGLE_CHECK(ecc_genkey(id, pkey)))
     return -1;
-  CopyReverse<32>(X, pkey.Pubkey.XCoordinate);
-  CopyReverse<32>(Y, pkey.Pubkey.YCoordinate);
+  CopyReverse<32>(X, pkey->Pubkey.XCoordinate);
+  CopyReverse<32>(Y, pkey->Pubkey.YCoordinate);
   if (private_)
-    CopyReverse<32>(private_, pkey.Prikey.PrivateKey);
+    CopyReverse<32>(private_, pkey->Prikey.PrivateKey);
   return 0;
 }
 int Dongle::ImportP256(int id, const uint8_t K[32]) {
-  ECCSM2_PRIVATE_KEY pkey;
-  pkey.bits = 256;
-  CopyReverse<32>(pkey.PrivateKey, K);
+  SecretBuffer<1, ECCSM2_PRIVATE_KEY> pkey;
+  pkey->bits = 256;
+  CopyReverse<32>(pkey->PrivateKey, K);
   return DONGLE_CHECK(write_file(FILE_PRIKEY_ECCSM2, id, 0, sizeof(pkey), reinterpret_cast<uint8_t*>(&pkey)));
 }
 
 int Dongle::GenerateSM2(int id, uint8_t X[32], uint8_t Y[32], uint8_t* private_) {
-  ECCSM2_KEY_PAIR pkey;
-  if (0 != DONGLE_CHECK(sm2_genkey(id, &pkey)))
+  SecretBuffer<1, ECCSM2_KEY_PAIR> pkey;
+  if (0 != DONGLE_CHECK(sm2_genkey(id, pkey)))
     return -1;
-  CopyReverse<32>(X, pkey.Pubkey.XCoordinate);
-  CopyReverse<32>(Y, pkey.Pubkey.YCoordinate);
+  CopyReverse<32>(X, pkey->Pubkey.XCoordinate);
+  CopyReverse<32>(Y, pkey->Pubkey.YCoordinate);
   if (private_)
-    CopyReverse<32>(private_, pkey.Prikey.PrivateKey);
+    CopyReverse<32>(private_, pkey->Prikey.PrivateKey);
   return 0;
 }
 int Dongle::ImportSM2(int id, const uint8_t K[32]) {
-  ECCSM2_PRIVATE_KEY pkey;
-  pkey.bits = 0x8100;
-  CopyReverse<32>(pkey.PrivateKey, K);
+  SecretBuffer<1, ECCSM2_PRIVATE_KEY> pkey;
+  pkey->bits = 0x8100;
+  CopyReverse<32>(pkey->PrivateKey, K);
   return DONGLE_CHECK(write_file(FILE_PRIKEY_ECCSM2, id, 0, sizeof(pkey), reinterpret_cast<uint8_t*>(&pkey)));
 }
 
@@ -323,15 +292,15 @@ int Dongle::RSAPrivate(int bits,
   if (!encrypt && BugCheckZeroInput(buffer))
     return -EINVAL;
 
-  RSA_PRIVATE_KEY prikey;
-  prikey.bits = bits;
-  prikey.modulus = modules;
-  memcpy(prikey.publicExponent, public_, 256);
-  memcpy(prikey.exponent, private_, 256);
+  SecretBuffer<1, RSA_PRIVATE_KEY> prikey;
+  prikey->bits = bits;
+  prikey->modulus = modules;
+  memcpy(prikey->publicExponent, public_, 256);
+  memcpy(prikey->exponent, private_, 256);
 
   WORD size_out = 256;
   int result = DONGLE_CHECK(
-      rsa_pri_raw(&prikey, buffer, static_cast<WORD>(size_in), buffer, &size_out, encrypt ? MODE_ENCODE : MODE_DECODE));
+      rsa_pri_raw(prikey, buffer, static_cast<WORD>(size_in), buffer, &size_out, encrypt ? MODE_ENCODE : MODE_DECODE));
   if (result >= 0)
     *size_buffer = size_out;
   return result;

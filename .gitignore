@@ -15,6 +15,9 @@ node_modules
 ## packScript.cjs 打包出该文件
 /Web/Agent/Tests/js/jsScriptBundled.js
 
+## 由 /Web/Script/grammar/dongle.sc 自动生成 ...
+/Web/Script/grammar/dongle.ts
+
 ## 日志和备份
 *.log
 *.bak

@@ -657,6 +657,18 @@ class Expression {
   }
 }
 
+/** VM 的 LoadMM/StoreMM 要求 addr % sizeof(T) == 0,编译期对常量地址提前校验 */
+function memoryAccessSize(op: integer): integer {
+  if (op === OpCode.kLoadI32 || op === OpCode.kStoreI32) return 4;
+  if (
+    op === OpCode.kLoadI16 ||
+    op === OpCode.kLoadU16 ||
+    op === OpCode.kStoreI16
+  )
+    return 2;
+  return 1;
+}
+
 class MemoryLoadExpr extends Expression {
   constructor(line: integer, addr: Expression, op0: integer, op1: integer) {
     super();
@@ -676,6 +688,11 @@ class MemoryLoadExpr extends Expression {
       const addr = this.addr_.value_;
       if (addr < 0 || addr >= 1024)
         throw RangeError(`Line ${this.line_} LoadMemory ${addr} Out-of-range!`);
+      const size = memoryAccessSize(this.op0_);
+      if (0 !== addr % size)
+        throw RangeError(
+          `Line ${this.line_} LoadMemory ${addr} misaligned for ${size}-byte access!`,
+        );
       result.code_.push(this.op0_ | addr);
     } else {
       result.code_.push(...this.addr_.Statement(true).code_);
@@ -713,7 +730,12 @@ class MemoryStoreExpr extends Expression {
     if (this.addr_ instanceof ConstExpr) {
       const addr = this.addr_.value_;
       if (addr < 0 || addr >= 1024)
-        throw RangeError(`Line ${this.line_} LoadMemory ${addr} Out-of-range!`);
+        throw RangeError(`Line ${this.line_} StoreMemory ${addr} Out-of-range!`);
+      const size = memoryAccessSize(this.op0_);
+      if (0 !== addr % size)
+        throw RangeError(
+          `Line ${this.line_} StoreMemory ${addr} misaligned for ${size}-byte access!`,
+        );
       result.code_.push(...this.value_.Statement(true).code_);
       if (v) result.code_.push(OpCode.kDup);
       result.code_.push(this.op0_ | addr);
@@ -752,8 +774,16 @@ class ConstExpr extends Expression {
       if (abs <= 0x1000) {
         code.push(OpCode.kLoadNI | (abs - 1));
       } else if (abs <= 0x100000) {
-        code.push(OpCode.kLoadMNI | ((abs >> 12) - 1));
-        if (0 !== (abs & 0xfff)) code.push(OpCode.kAddUI | (abs & 0xfff));
+        const M = abs >> 12;
+        const L = abs & 0xfff;
+        if (0 === L) {
+          code.push(OpCode.kLoadMNI | (M - 1));
+        } else {
+          /* kLoadMNI|imm 压入 (-(imm+1))<<12:取 imm=M 得 -(M<<12)-0x1000,
+           * 再加 (0x1000 - L) 恰为 -(M<<12) - L = -abs(低位须做减法,不能直接加 L) */
+          code.push(OpCode.kLoadMNI | M);
+          code.push(OpCode.kAddUI | (0x1000 - L));
+        }
       }
     } else {
       const abs = this.value_;
@@ -901,16 +931,22 @@ class BinaryExpr extends Expression {
             }
             break;
           case OpCode.kSll:
+            if (value < 0 || value > 31)
+              throw RangeError(`Shift amount ${value} out of range [0,31] — the VM silently masks it with 0x1F`);
             handle = true;
-            code.push(OpCode.kSllI | (value & 0x1f));
+            code.push(OpCode.kSllI | value);
             break;
           case OpCode.kSrl:
+            if (value < 0 || value > 31)
+              throw RangeError(`Shift amount ${value} out of range [0,31] — the VM silently masks it with 0x1F`);
             handle = true;
-            code.push(OpCode.kSrlI | (value & 0x1f));
+            code.push(OpCode.kSrlI | value);
             break;
           case OpCode.kSra:
+            if (value < 0 || value > 31)
+              throw RangeError(`Shift amount ${value} out of range [0,31] — the VM silently masks it with 0x1F`);
             handle = true;
-            code.push(OpCode.kSraI | (value & 0x1f));
+            code.push(OpCode.kSraI | value);
             break;
           case OpCode.kXor:
             if (value >= -128 && value <= 127) {
@@ -1265,9 +1301,10 @@ export class Context {
         break;
       case Action.AC_PUBLIC_SIZE_X:
         this.public_size_ = <integer>$(2);
-        if (this.public_size_ < 0 || this.public_size_ > 1024)
+        /* 数据区约定: [0,256) 输出/公共区, [256,1024) 输入区 —— public 超过 256 会与输入区重叠 */
+        if (this.public_size_ < 0 || this.public_size_ > 256)
           throw Error(
-            `Line ${this.yyline_} invalid public size ${this.public_size_}!`,
+            `Line ${this.yyline_} invalid public size ${this.public_size_} (must be 0..256)!`,
           );
         break;
       case Action.AC_CONST_STATEMENT:
@@ -1484,7 +1521,9 @@ export class Context {
           const right = <Expression>$(3);
 
           if (left instanceof ConstExpr && right instanceof ConstExpr) {
-            left.value_ = left.value_ << (right.value_ & 0x1f);
+            if (right.value_ < 0 || right.value_ > 31)
+              throw RangeError(`Shift amount ${right.value_} out of range [0,31] — it would be silently masked`);
+            left.value_ = left.value_ << right.value_;
           } else {
             $$ = new BinaryExpr(left, right, OpCode.kSll);
           }
@@ -1497,7 +1536,9 @@ export class Context {
           const right = <Expression>$(3);
 
           if (left instanceof ConstExpr && right instanceof ConstExpr) {
-            left.value_ = left.value_ >> (right.value_ & 0x1f);
+            if (right.value_ < 0 || right.value_ > 31)
+              throw RangeError(`Shift amount ${right.value_} out of range [0,31] — it would be silently masked`);
+            left.value_ = left.value_ >> right.value_;
           } else {
             $$ = new BinaryExpr(left, right, OpCode.kSra);
           }
@@ -1510,7 +1551,9 @@ export class Context {
           const right = <Expression>$(3);
 
           if (left instanceof ConstExpr && right instanceof ConstExpr) {
-            left.value_ = left.value_ >>> (right.value_ & 0x1f);
+            if (right.value_ < 0 || right.value_ > 31)
+              throw RangeError(`Shift amount ${right.value_} out of range [0,31] — it would be silently masked`);
+            left.value_ = left.value_ >>> right.value_;
           } else {
             $$ = new BinaryExpr(left, right, OpCode.kSrl);
           }

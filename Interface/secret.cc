@@ -125,8 +125,8 @@ static void MASTER_SECRET_PROCESS(uint8_t ENCRYPT_MASTER_SECRET[256], Dongle* do
 }
 
 int VM_t::READ_MASTER_SECRET(uint8_t MASTER_SECRET[64]) {
-  uint8_t ENCRYPT_MASTER_SECRET[256];
-  int result = dongle_->ReadDataFile(kKeyIdGlobalSECRET, 0, ENCRYPT_MASTER_SECRET, sizeof(ENCRYPT_MASTER_SECRET));
+  Dongle::SecretBuffer<256, uint8_t> ENCRYPT_MASTER_SECRET;
+  int result = dongle_->ReadDataFile(kKeyIdGlobalSECRET, 0, ENCRYPT_MASTER_SECRET, 256);
   if (0 != result) {
     rlLOGE(TAG, "kFactoryDataFileId.Read Failed %d!", result);
     return result;
@@ -141,7 +141,6 @@ int VM_t::READ_MASTER_SECRET(uint8_t MASTER_SECRET[64]) {
   }
 
   memcpy(MASTER_SECRET, ENCRYPT_MASTER_SECRET, kSize_MASTER_SECRET);
-  memset(ENCRYPT_MASTER_SECRET, 0, sizeof(ENCRYPT_MASTER_SECRET));
   return 0;
 }
 

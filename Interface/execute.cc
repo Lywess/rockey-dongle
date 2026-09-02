@@ -80,11 +80,11 @@ rLANGEXPORT int rLANGAPI RockeyTrustExecutePrepare(VM_t& vm, void* InOutBuf /* 1
   DecodeTextContext& v = *(DecodeTextContext*)((uint8_t*)ExtendBuf + 512);
 
   int result = 0;
-  rLANG_ABIREQUIRE(256 == sizeof(v));
-  memcpy(&v, InOutBuf, sizeof(v));
   if (vm.data_ != InOutBuf || vm.buffer_ != ExtendBuf)
     return -EBADF;
 
+  rLANG_ABIREQUIRE(256 == sizeof(v));
+  memcpy(&v, InOutBuf, sizeof(v));
   memset(&runtime_header_, 0, sizeof(RuntimeHeader));
   if (0 != vm.dongle_->GetDongleInfo(&runtime_header_.dongle_info_))
     return -EFAULT;

@@ -1,4 +1,4 @@
-#include <Interface/dongle.h>
+﻿#include <Interface/dongle.h>
 #include <base/base.h>
 
 #ifdef _MSC_VER
@@ -507,7 +507,9 @@ int Dongle::ComputeSecretSecp256k1(uint8_t secret[32], const uint8_t X[32], cons
 
   ScopeRNG __rng(this);
   ScopeSecp256k1 __secp256k1;
-  return uECC_shared_secret(pubkey, K, secret, &curve_secp256k1);
+  if (!uECC_shared_secret(pubkey, K, secret, &curve_secp256k1))
+    return last_error_ = -EFAULT;
+  return 0;
 }
 int Dongle::SignMessageSecp256k1(const uint8_t K[32], const uint8_t H[32], uint8_t R[32], uint8_t S[32]) {
   uint8_t sign[64];

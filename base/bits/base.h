@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #ifndef ___WTINC_BITS_BASE_H__
 #define ___WTINC_BITS_BASE_H__
@@ -242,9 +242,6 @@ rLANG_DECLARE_PRIVATE_CONTEXT(rlCryptoChaCha20Ctx, 144);
 rLANG_DECLARE_PRIVATE_CONTEXT(rlCryptoPoly1305Ctx, 80);
 rLANG_DECLARE_PRIVATE_CONTEXT(rlCryptoChaChaPolyCtx, 256);
 
-/* for dongle */
-rLANGEXPORT void rLANGAPI rlCryptoEd25519PubkeyEx(uint8_t out_public_key[32], const uint8_t az_[32]);
-
 /* Definite output, only related to seedBytes/randBytes calls  */
 rLANGEXPORT void rLANGAPI rlCryptoRandBytes(void* p, int size);
 rLANGEXPORT void rLANGAPI rlCryptoSeedBytes(const void* p, int size);
@@ -275,9 +272,9 @@ rLANGEXPORT void rLANGAPI rlCryptoEd25519Sign(uint8_t out_sig[64],
                                               int message_len,
                                               const uint8_t public_key[32],
                                               const uint8_t private_key[32]);
-rLANGEXPORT void rLANGAPI rlCryptoX25519(uint8_t out_shared_key[32],
-                                         const uint8_t private_key[32],
-                                         const uint8_t peer_public_value[32]);
+rLANGEXPORT int rLANGAPI rlCryptoX25519(uint8_t out_shared_key[32],
+                                        const uint8_t private_key[32],
+                                        const uint8_t peer_public_value[32]);
 rLANGEXPORT void rLANGAPI rlCryptoX25519Pubkey(uint8_t out_public_value[32], const uint8_t private_key[32]);
 
 rLANGEXPORT void rLANGAPI rlCryptoChaCha20Init(rlCryptoChaCha20Ctx* ctx);

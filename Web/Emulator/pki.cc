@@ -289,7 +289,7 @@ rLANGWASMEXPORT int Initialize() {
   SSL_load_error_strings();
   RockeyPKEY_Initialize();
 
-  uint8_t buffer[128];
+  uint8_t buffer[128] = {0};
   FILE* fp = fopen("/dev/random", "rb");
   if (fp) {
     fread(buffer, 1, sizeof(buffer), fp);
@@ -301,6 +301,109 @@ rLANGWASMEXPORT int Initialize() {
 
 rLANGWASMEXPORT void RANDSeedBytes(const void* buff, size_t size) {
   RAND_seed(buff, size);
+}
+
+constexpr int kSizeX509Limit = 8192;
+
+rLANGWASMEXPORT int rLANGAPI RockeyPKEY_VerifyX509(XIdRockeyPKEY pkey_, const uint8_t* x509_der, int x509_size) {
+  EVP_PKEY* pkey = EVP_PKEY_From_RockeyPKEY(pkey_);
+  if (!pkey) {
+    rlLOGE(TAG, "[ENOENT]RockeyPKEY[%d] 404 Not Found!", pkey_);
+    return -ENOENT;
+  }
+
+  if (!x509_der || x509_size < 16 || x509_size > kSizeX509Limit) {
+    rlLOGE(TAG, "[EINVAL]VerifyX509 %d %p %d", pkey_, x509_der, x509_size);
+    return -EINVAL;
+  }
+
+  X509* x509 = d2i_X509(nullptr, &x509_der, x509_size);
+  if (!x509) {
+    rlLOGE(TAG, "[EFAULT]LoadX509[%d] Failed!", x509_size);
+    return -EFAULT;
+  }
+
+  int result = X509_verify(x509, pkey);
+  X509_free(x509);
+
+  if (result <= 0) {
+    rlLOGE(TAG, "[EFAULT]X509.verify %d %p %d Error %d", pkey_, x509_der, x509_size, result);
+    return result < 0 ? result : -EFAULT;
+  }
+
+  return 0;
+}
+
+
+rLANGWASMEXPORT int rLANGAPI RockeyPKEY_VerifyX509Req(const uint8_t* x509_req_der, int x509_req_size) {
+  if (!x509_req_der || x509_req_size < 16 || x509_req_size > kSizeX509Limit) {
+    rlLOGE(TAG, "[EINVAL]X509.REQ.Verify %p %d", x509_req_der, x509_req_size);
+    return -EINVAL;
+  }
+
+  X509_REQ* req = d2i_X509_REQ(nullptr, &x509_req_der, x509_req_size);
+  if (!req) {
+    rlLOGE(TAG, "[EFAULT]LoadX509_REQ[%d] Failed!", x509_req_size);
+    return -EFAULT;
+  }
+
+  int result = X509_REQ_verify(req, X509_REQ_get0_pubkey(req));
+  X509_REQ_free(req);
+
+  if (result <= 0) {
+    rlLOGE(TAG, "[EFAULT]X509_REQ.verify %d Error %d", x509_req_size, result);
+    return result < 0 ? result : -EFAULT;
+  }
+
+  return 0;
+}
+
+/**
+ *! 签署CA根证书 ...
+ */
+rLANGWASMEXPORT int rLANGAPI RockeyPKEY_SignRootCA(const char* subject,
+                                                   const char* comment,
+                                                   double notBefore,
+                                                   double notAfter,
+                                                   XIdRockeyPKEY pkey,
+                                                   const char* md,
+                                                   const uint8_t* v3_ext_der_if,
+                                                   int v3_ext_siz,
+                                                   uint8_t* out_x509_der,
+                                                   int siz_x509_der) {
+  return -1;
+}
+
+/**
+ *! 创建CSR请求, 不验证 X509||X509_REQ 签名, 如需要验证, 手工调用 RockeyPKEY_VerifyX509 ...
+ */
+rLANGWASMEXPORT int rLANGAPI RockeyPKEY_X509ReqFrom(const uint8_t* x509_or_req_der,
+                                                    int x509_or_req_size,
+                                                    XIdRockeyPKEY pkey,
+                                                    const char* md,
+                                                    uint8_t* out_x509_req_der,
+                                                    int siz_x509_req_der) {
+  return -1;
+}
+
+/**
+ *! 签署CSR请求, 不验证 X509_REQ 签名, 如需要验证, 手工调用 RockeyPKEY_VerifyX509 ...
+ */
+rLANGWASMEXPORT int rLANGAPI RockeyPKEY_SignX509(const uint8_t* x509_req_der,
+                                                 int x509_req_siz,
+                                                 double notBefore,
+                                                 double notAfter,
+                                                 const uint8_t* x509_ca_if,
+                                                 int x509_ca_siz,
+                                                 XIdRockeyPKEY pkey,
+                                                 const char* md,
+                                                 const uint8_t* searia_number_if /* null for RandBytes(16) */,
+                                                 int searia_number_size,
+                                                 const uint8_t* v3_ext_der_if,
+                                                 int v3_ext_siz,
+                                                 uint8_t* out_x509_der,
+                                                 int siz_x509_der) {
+  return -1;
 }
 
 /**

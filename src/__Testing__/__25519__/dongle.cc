@@ -1,4 +1,4 @@
-#include <Interface/dongle.h>
+﻿#include <Interface/dongle.h>
 #include <base/base.h>
 
 rLANG_DECLARE_MACHINE
@@ -2453,7 +2453,7 @@ int Start(void* InOutBuf, void* ExtendBuf) {
       rlLOGI(TAG, "\t%s: [ %s ]", prefix, line);
     };
 
-    rlCryptoEd25519PubkeyEx(base_pubkey, one_);
+    rlCryptoEd25519Pubkey(base_pubkey, one_);
     ge_frombytes_vartime(&ge_base, base_pubkey);
     rlLOGI(TAG, "BASE.Point:");
     fe_log(ge_base.X, "X");

@@ -160,8 +160,11 @@ int VM_t::OpFuncDataFile(uint16_t op, int argc, int32_t argv[]) {
       int id = argv[0], size = argv[1];
       PERMISSION rPerm = argc >= 3 ? PermissionFrom(argv[2]) : PERMISSION::kAnonymous;
       PERMISSION wPerm = argc >= 4 ? PermissionFrom(argv[3]) : PERMISSION::kAnonymous;
+      static constexpr int kSizeLimit = 16 * 1024;
 
-      if ((id < kUserFileID && valid_permission_ != PERMISSION::kAdministrator) || id == kKeyIdGlobalSECRET) {
+      if (size <= 0 || size > kSizeLimit) {
+        value = -ERANGE;
+      } else if ((id < kUserFileID && valid_permission_ != PERMISSION::kAdministrator) || id == kKeyIdGlobalSECRET) {
         zero_ = -EACCES;
       } else {
         value = dongle_->CreateDataFile(id, size, rPerm, wPerm);
@@ -854,19 +857,24 @@ int VM_t::OpFuncDigest(uint16_t op, int argc, int32_t argv[]) {
       cycles_ -= 1024 + 64 * size;
       if (op == OpCode::kDigestSHA1) {
         uint8_t* md = static_cast<uint8_t*>(OpCheckMM(argv[2], 20));
-        value = dongle_->SHA1(input, size, md);
+        if (md)
+          value = dongle_->SHA1(input, size, md);
       } else if (op == OpCode::kDigestSM3) {
         uint8_t* md = static_cast<uint8_t*>(OpCheckMM(argv[2], 32));
-        value = dongle_->SM3(input, size, md);
+        if (md)
+          value = dongle_->SM3(input, size, md);
       } else if (op == OpCode::kExDigestSHA256) {
         uint8_t* md = static_cast<uint8_t*>(OpCheckMM(argv[2], 32));
-        value = dongle_->SHA256(input, size, md);
+        if (md)
+          value = dongle_->SHA256(input, size, md);
       } else if (op == OpCode::kExDigestSHA384) {
         uint8_t* md = static_cast<uint8_t*>(OpCheckMM(argv[2], 48));
-        value = dongle_->SHA384(input, size, md);
+        if (md)
+          value = dongle_->SHA384(input, size, md);
       } else if (op == OpCode::kExDigestSHA512) {
         uint8_t* md = static_cast<uint8_t*>(OpCheckMM(argv[2], 64));
-        value = dongle_->SHA512(input, size, md);
+        if (md)
+          value = dongle_->SHA512(input, size, md);
       } else {
         zero_ = SIGILL;
       }
@@ -994,7 +1002,7 @@ int VM_t::OpFuncTDES(uint16_t op, int argc, int32_t argv[]) {
     uint8_t* buffer = static_cast<uint8_t*>(OpCheckMM(argv[1], size));
     if (buffer) {
       cycles_ -= 64 * size;
-      if (size <= 0 || size % 16 != 0) {
+      if (size <= 0 || size % 8 != 0) {
         value = -EINVAL;
       } else {
         if (op == OpCode::kTDESECBEncrypt) {
@@ -1391,7 +1399,7 @@ int VM_t::Execute() {
               if (argc_ > 1) {
                 zero_ = SIGILL;
               } else if (argc_) {
-                zero_ = argv_[0];
+                value = zero_ = argv_[0]; /* Exit(!0) 总是表示异常退出, 不保留运行结果 */
               }
               break;
             } else {

@@ -207,9 +207,16 @@ static int RockeyARM_Lock(RockeyARM* dongle, const char* hid) {
 
   rl_HEX_Write(sPIN, zPIN, 8);
 
+#if !defined(rLANG_CONFIG_DONGLE_FINAL_LOCK) || 10086 != rLANG_CONFIG_DONGLE_FINAL_LOCK
+  /**
+   *! TODO: LiangLI, 将 sPIN 加密到预置的 gpg-pubkey 或者 K0/K1/K2/K3 SM2ECIES-pubkey ...
+   *! 1) Initialize + EnTrust 以及功能脚本签名必须在物理隔离的可信环境执行 ...
+   *! 2) 离开可信环境前 ***必须*** 锁定 u-key ...
+   **/
   for (int i = 0; i < 3; ++i) {
     rlLOGW(TAG, "%d) RockeyARM_Lock <%s> HPIN <%s>", i, hid, sPIN);
   }
+#endif /* rLANG_CONFIG_DONGLE_FINAL_LOCK */
 
   const char* const default_admin_pin_ = dongle->GetDefaultPIN(PERMISSION::kAdministrator);
   return dongle->ChangePIN(PERMISSION::kAdministrator, default_admin_pin_, sPIN, 100);
@@ -372,7 +379,7 @@ int Utilities(int stdout_, const char* type, RockeyARM* dongle, bool adminMode, 
     /// 2) 应该彻底的忘记管理员PIN码以避免uKey内容被无意识的修改或者读取    ...
     ///
     char s_sha256[80], s_check[80];
-    uint8_t sha256[32] = {0}, check[32] = {0}, dashboard[8192];
+    uint8_t sha256[32] = {0}, check[32] = {0}, dashboard[8192] = {0};
 
     if (!adminMode) {
       rlLOGE(TAG, "[EACCES]Utilities.Lock kAdministrator require!!");
@@ -400,7 +407,7 @@ int Utilities(int stdout_, const char* type, RockeyARM* dongle, bool adminMode, 
         result = RockeyARM_VerifyExecvHelper((uint16_t)script::OpCode::kLoadUI | 1, 1, dongle);
 
       for (int loop = 0; 0 == result && loop < 3; ++loop) {
-        uint32_t verify = rand();
+        uint32_t verify = 0;
         RAND_bytes((uint8_t*)&verify, sizeof(verify));
         verify = (verify & 0xfff) | 0x400;
         result = RockeyARM_VerifyExecvHelper((uint16_t)script::OpCode::kLoadUI | verify, verify, dongle);
@@ -443,6 +450,12 @@ int main(int argc, char* argv[]) {
   using namespace machine::dongle;
   using namespace machine::dongle::script;
 
+  /**
+   *! !!!
+   *! !!! 我们必须假定系统不依赖于任何的PIN码/PSK运行, 任何合理的验证必须发生在ukey内部
+   *! !!! 1) 任何出现在ukey之外的信息都是众所周知的, 即使是在可信设备下输入的PIN码, 都必须被日志记录
+   *! !!!
+   */
   rlLOGI(TAG, "ZION.Execv argc: %d", argc);
   for (int i = 0; i < argc; ++i) {
     rlLOGI(TAG, "  argv[%d/%d] : %s", i, argc, argv[i]);
@@ -644,12 +657,12 @@ int main(int argc, char* argv[]) {
 
   Emulator rockey(adminPasswd[0] != 'X' ? PERMISSION::kAdministrator : PERMISSION::kAnonymous);
   if (rockey.Open(dongleFile, dongleSecret) < 0)
-    rockey.Create(dongleSecret);
+    DONGLE_VERIFY(0 == rockey.Create(dongleSecret));
 #elif !defined(__RockeyARM__)
   RockeyARM rockey;
   if (argc >= 2 && 0 == strcmp(argv[1], "--list")) {
     constexpr int kCountDongle = 80;
-    char line[2048] = "";
+    char line[4096] = "";
     union {
       DONGLE_INFO info[kCountDongle];
       uint8_t data[kCountDongle * sizeof(DONGLE_INFO)];
@@ -702,7 +715,7 @@ int main(int argc, char* argv[]) {
     adminPasswd = argv[3];
 
   for (char *inp = argv[2], *oup = hexHid; *inp && oup - hexHid < 30; ++inp) {
-    if (isxdigit(*inp)) {
+    if (isxdigit((uint8_t)*inp)) {
       *oup++ = *inp;
     } else if (*inp != '-') {
       hexHid[0] = 0;

@@ -279,8 +279,10 @@ int VM_t::OpManager_ComputeSecretBytes(uint8_t* bytes_, int32_t type) {
   MASTER_SECRET_CONTEXT.type_ = type;
   memcpy(MASTER_SECRET_CONTEXT.bytes_, bytes_, 64);
   rlLOGI(TAG, "OpManager_ComputeSecretBytes %02X %d!", bytes_[0], type);
-  if (0 != READ_MASTER_SECRET(MASTER_SECRET_CONTEXT.MASTER_SECRET))
-    ++error;
+  if (0 != READ_MASTER_SECRET(MASTER_SECRET_CONTEXT.MASTER_SECRET)) {
+    memset(MASTER_SECRET_CONTEXT.MASTER_SECRET, 0, sizeof(MASTER_SECRET_CONTEXT.MASTER_SECRET));
+    return -EFAULT;
+  }
 
   if (0 == type) {
     MASTER_SECRET_CONTEXT.seed_0_ = rLANG_WORLD_SEED_0;

@@ -67,7 +67,9 @@ template <typename T>
 class HashBase {
  public:
   T& Clear() {
-    memset(&ctx_, 0, sizeof(ctx_));
+    volatile uint8_t* p = reinterpret_cast<volatile uint8_t*>(&ctx_);
+    for (size_t i = 0; i < sizeof(ctx_); ++i)
+      p[i] = 0;
     return *static_cast<T*>(this);
   }
 
@@ -105,7 +107,7 @@ class Curve25519 {
     X25519(pubkey, prikey, pubkey);
     memcpy(pubkey_, pubkey, 32);
   }
-  void X25519(uint8_t secret[32], const uint8_t prikey[32], const uint8_t pubkey[32]);
+  int X25519(uint8_t secret[32], const uint8_t prikey[32], const uint8_t pubkey[32]);
 };
 
 class Ed25519 {
@@ -228,7 +230,7 @@ class Dongle {
   Dongle& operator=(const Dongle&) = delete;
 
  public:
-  DWORD GetLastError(bool reset = true) const {
+  int GetLastError(bool reset = true) const {
     DWORD result = last_error_;
     if (reset)
       last_error_ = 0;
@@ -447,7 +449,7 @@ public:
   int CheckError(DWORD error, const char* expr) {
     int result = CheckError(error);
     if (result < 0)
-      rlLOGE(rLANG_WORLD_MAGIC, "DONGLE.EXEC '%s' Error %08X", expr, error);
+      rlLOGE(rLANG_WORLD_MAGIC, "DONGLE.EXEC '%s' Error %08X", expr, (int)error);
     return result;
   }
 #endif /* __RockeyARM__ */

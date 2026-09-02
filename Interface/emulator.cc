@@ -206,7 +206,7 @@ class DongleHandle {
     if (0 != sb.public_.reseved_)
       return -EFAULT;
 
-    uint8_t secret[256];
+    Dongle::SecretBuffer<256> secret;
     Dongle::SecretBuffer<16, uint32_t> state_mask_;
     Dongle::SecretBuffer<64> MASTER_PKMASK, MASTER_PRIKEY;
 
@@ -529,21 +529,29 @@ class DongleHandle {
 
     auto& header = iter->first;
     size_t size = header.size_;
-    int result = 0;
 
+    std::vector<uint8_t> op(iter->second);
     if (header.empty_file_) {
-      header.empty_file_ = 0;
-      DONGLE_VERIFY(iter->second.empty());
-      iter->second.resize(FileContentSize(size));
-      result = callback(&iter->second[0], size);
+      op.resize(FileContentSize(size));
     } else {
-      DONGLE_VERIFY(iter->second.size() == FileContentSize(size));
-      if (!DecryptBuffer(&iter->second[0], size))
-        return -EFAULT;
-      result = callback(&iter->second[0], size);
+      DONGLE_VERIFY(op.size() == FileContentSize(size));
     }
 
-    EncryptBuffer(&iter->second[0], size);
+    int result = callback(&op[0], size);
+    if (0 == result) {
+      EncryptBuffer(&op[0], size);
+
+      if (header.empty_file_) {
+        DONGLE_VERIFY(iter->second.empty());
+        header.empty_file_ = 0;
+      }
+
+      std::swap(op, iter->second);
+    } else if (!header.empty_file_) {
+      EncryptBuffer(&iter->second[0], size);
+    }
+
+    memset(&op[0], 0, op.size());
     return result;
   }
 
@@ -630,38 +638,6 @@ rLANGEXPORT int rLANGAPI SM2Cipher_ASN1ToText(const uint8_t* asn1_cipher, size_t
 Dongle::Dongle() {
   rLANG_RAND_Bytes(entropy_local_, sizeof(entropy_local_));
   InitializeEntropyLocal();
-}
-
-int Dongle::RandBytes(uint8_t* buffer, size_t size) {
-  union {
-    uint8_t stream[64];
-    uint32_t v_i32[16];
-  };
-
-  uint8_t* p = buffer;
-  HwARandBytes(p, size);
-
-  while (size >= 64) {
-    ++entropy_local_[15];
-    rlCryptoChaCha20Block(entropy_local_, stream);
-    for (size_t i = 0; i < 64; ++i)
-      p[i] ^= stream[i];
-
-    p += 64;
-    size -= 64;
-  }
-
-  if (size > 0) {
-    ++entropy_local_[15];
-    rlCryptoChaCha20Block(entropy_local_, stream);
-    for (size_t i = 0; i < size; ++i)
-      p[i] ^= stream[i];
-  }
-
-  SHA512(buffer, size, stream);
-  for (int i = 0; i < 16; ++i)
-    entropy_local_[i] += v_i32[i];
-  return 0;
 }
 
 int Dongle::HwARandBytes(uint8_t* buffer, size_t size) {
@@ -1242,7 +1218,7 @@ int Dongle::P256Sign(const uint8_t prikey[32], const uint8_t hash[32], uint8_t R
   } while (0);
 
   EC_KEY_free(eckey);
-  BN_free(pkey);
+  BN_clear_free(pkey);
 
   if (ret < 0) {
     rlLOGE(TAG, "P256Sign Error!");
@@ -1345,7 +1321,7 @@ int Dongle::SM2Sign(const uint8_t prikey[32], const uint8_t hash[32], uint8_t R[
   } while (0);
 
   EC_KEY_free(eckey);
-  BN_free(pkey);
+  BN_clear_free(pkey);
 
   if (ret < 0) {
     rlLOGE(TAG, "SM2Sign Error!");
@@ -1399,7 +1375,7 @@ int Dongle::SM2Decrypt(const uint8_t private_[32],
   } while (0);
 
   EC_KEY_free(eckey);
-  BN_free(pkey);
+  BN_clear_free(pkey);
 
   if (ret < 0) {
     rlLOGE(TAG, "SM2Decrypt Error!");

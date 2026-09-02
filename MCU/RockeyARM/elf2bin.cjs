@@ -1,4 +1,4 @@
-const fs = require("fs");
+﻿const fs = require("fs");
 const crypto = require("crypto");
 const rLANG_MATRIX_TEXT_OFFSET = 0;
 const rlTXT_SIZEMAX = 65520;
@@ -62,26 +62,22 @@ function Elf2BIN(elfFILE) {
   }
 
   let eHdr = Elf32_Ehdr(get(0, 52));
-  if (eHdr.e_type !== ET_EXEC || eHdr.e_machine !== EM_ARM)
+  if (eHdr.e_type !== ET_EXEC || eHdr.e_machine !== EM_ARM || eHdr.e_phnum < 1)
     err(`Invalid ELF file.`);
 
-  if (eHdr.e_phnum !== 1) {
-    /* check ldscript ... */
-    /***
-    let inv = true;
-    if (eHdr.e_phnum === 2) {
-      const ePHdrData = Elf32_Phdr(get(eHdr.e_phoff + 32, 32));
-      if (
-        ePHdrData.p_vaddr === 0x68001400 &&
-        ePHdrData.p_memsz === 0x14 &&
-        ePHdrData.p_filesz === 0
-      )
-        inv = false;
-    }
-
-    if (inv) err(`Invalid ELF file`);
-    ***/
+  const inv = [];
+  for (let i = 1; i < eHdr.e_phnum; i++) {
+    const ePHdrData = Elf32_Phdr(get(eHdr.e_phoff + 32 * i, 32));
+    if (
+      ePHdrData.p_filesz !== 0 ||
+      (ePHdrData.p_vaddr !== 0x68000bf0 && ePHdrData.p_vaddr !== 0x68001400)
+    )
+      inv.push(ePHdrData);
   }
+  if (inv.length)
+    err(
+      `Invalid ELF file (extra LOAD segments would be dropped), ${JSON.stringify(inv, null, 2)}`,
+    );
 
   let ePHdrText = Elf32_Phdr(get(eHdr.e_phoff, 32));
   if (

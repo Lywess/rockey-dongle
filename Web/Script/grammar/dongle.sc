@@ -1,11 +1,11 @@
-%package machine.dongle.script
+﻿%package machine.dongle.script
 
 %scenario Tokenize {
     %define NL          /\r\n|\r|\n/
     %define SP          /[[:space:]]/
     %define HEX         /0[xX][[:xdigit:]]+/
     %define OCT         /0[0-7]+/
-    %define NUM         /[0-9]+/
+    %define DEC         /[1-9][0-9]*/
     %define IDEN        /[[:alpha:]][[:alnum:]_]*/
 
     %state SC_MCOMM, SC_SCOMM
@@ -13,7 +13,7 @@
     <INITIAL>{
         %action AC_MCOMM_BEGIN      /\/\*/
         %action AC_SCOMM_BEGIN      /\/\//
-        %action AC_NUMBER           /{HEX}|{OCT}|{NUM}/
+        %action AC_NUMBER           /{HEX}|{OCT}|{DEC}/
 
         %action AC_IF               /if/
         %action AC_ELSE             /else/

@@ -32,11 +32,19 @@ ROCKEY_DECLARE_FILE ?= dongle.cc
 ##
 ##
 ##
-LOCAL_SRC_FILES := $(ROCKEY_DECLARE_FILE)
-LOCAL_SRC_FILES += curves.cc chachapoly.cc sha256.cc sha512.cc curve25519.cc
-LOCAL_SRC_FILES += execute.cc script.cc master.cc secret.cc
+ROCKEY_MASTER_FILES := master.cc secret.cc TRNG.cc
 
-$(eval $$(LOCAL_MODULE)-prepare: $$(LOCAL_PATH)/master.cc $$(LOCAL_PATH)/secret.cc; touch $$? )
+##
+##
+##
+LOCAL_SRC_FILES := $(ROCKEY_DECLARE_FILE) $(ROCKEY_MASTER_FILES)
+LOCAL_SRC_FILES += curves.cc chachapoly.cc sha256.cc sha512.cc curve25519.cc
+LOCAL_SRC_FILES += execute.cc script.cc
+
+##
+##
+##
+$(eval $$(LOCAL_MODULE)-prepare: $$(addprefix $$(LOCAL_PATH)/, $$(ROCKEY_MASTER_FILES)); touch $$? )
 
 ##
 ## 继续为程序注入一些额外的随机性 ...
