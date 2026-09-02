@@ -628,8 +628,8 @@ const AllFunc: TypeFuncCall[] = [
     name: "kExecuteExchangeMasterSecret",
     min: 0,
     max: 0,
-    op: OpCode.kExecuteExchangeMasterSecret
-  }
+    op: OpCode.kExecuteExchangeMasterSecret,
+  },
 ];
 
 const table_memory_op = new Map<string, TypeMemoryOp>();
@@ -730,7 +730,9 @@ class MemoryStoreExpr extends Expression {
     if (this.addr_ instanceof ConstExpr) {
       const addr = this.addr_.value_;
       if (addr < 0 || addr >= 1024)
-        throw RangeError(`Line ${this.line_} StoreMemory ${addr} Out-of-range!`);
+        throw RangeError(
+          `Line ${this.line_} StoreMemory ${addr} Out-of-range!`,
+        );
       const size = memoryAccessSize(this.op0_);
       if (0 !== addr % size)
         throw RangeError(
@@ -932,19 +934,25 @@ class BinaryExpr extends Expression {
             break;
           case OpCode.kSll:
             if (value < 0 || value > 31)
-              throw RangeError(`Shift amount ${value} out of range [0,31] — the VM silently masks it with 0x1F`);
+              throw RangeError(
+                `Shift amount ${value} out of range [0,31] — the VM silently masks it with 0x1F`,
+              );
             handle = true;
             code.push(OpCode.kSllI | value);
             break;
           case OpCode.kSrl:
             if (value < 0 || value > 31)
-              throw RangeError(`Shift amount ${value} out of range [0,31] — the VM silently masks it with 0x1F`);
+              throw RangeError(
+                `Shift amount ${value} out of range [0,31] — the VM silently masks it with 0x1F`,
+              );
             handle = true;
             code.push(OpCode.kSrlI | value);
             break;
           case OpCode.kSra:
             if (value < 0 || value > 31)
-              throw RangeError(`Shift amount ${value} out of range [0,31] — the VM silently masks it with 0x1F`);
+              throw RangeError(
+                `Shift amount ${value} out of range [0,31] — the VM silently masks it with 0x1F`,
+              );
             handle = true;
             code.push(OpCode.kSraI | value);
             break;
@@ -1301,10 +1309,14 @@ export class Context {
         break;
       case Action.AC_PUBLIC_SIZE_X:
         this.public_size_ = <integer>$(2);
-        /* 数据区约定: [0,256) 输出/公共区, [256,1024) 输入区 —— public 超过 256 会与输入区重叠 */
-        if (this.public_size_ < 0 || this.public_size_ > 256)
+        /**
+         *! public 定义程序输出的字节数, InOutBuffer 这样定义
+         *! 1) 输入时: 数据区约定: TEXT[256], DATA[1024-256]
+         *! 2) 输出时: 最大的输出长度为 1024, OUTPUT[1024]
+         */
+        if (this.public_size_ < 0 || this.public_size_ > 1024)
           throw Error(
-            `Line ${this.yyline_} invalid public size ${this.public_size_} (must be 0..256)!`,
+            `Line ${this.yyline_} invalid public size ${this.public_size_} (must be 0..1024)!`,
           );
         break;
       case Action.AC_CONST_STATEMENT:
@@ -1522,7 +1534,9 @@ export class Context {
 
           if (left instanceof ConstExpr && right instanceof ConstExpr) {
             if (right.value_ < 0 || right.value_ > 31)
-              throw RangeError(`Shift amount ${right.value_} out of range [0,31] — it would be silently masked`);
+              throw RangeError(
+                `Shift amount ${right.value_} out of range [0,31] — it would be silently masked`,
+              );
             left.value_ = left.value_ << right.value_;
           } else {
             $$ = new BinaryExpr(left, right, OpCode.kSll);
@@ -1537,7 +1551,9 @@ export class Context {
 
           if (left instanceof ConstExpr && right instanceof ConstExpr) {
             if (right.value_ < 0 || right.value_ > 31)
-              throw RangeError(`Shift amount ${right.value_} out of range [0,31] — it would be silently masked`);
+              throw RangeError(
+                `Shift amount ${right.value_} out of range [0,31] — it would be silently masked`,
+              );
             left.value_ = left.value_ >> right.value_;
           } else {
             $$ = new BinaryExpr(left, right, OpCode.kSra);
@@ -1552,7 +1568,9 @@ export class Context {
 
           if (left instanceof ConstExpr && right instanceof ConstExpr) {
             if (right.value_ < 0 || right.value_ > 31)
-              throw RangeError(`Shift amount ${right.value_} out of range [0,31] — it would be silently masked`);
+              throw RangeError(
+                `Shift amount ${right.value_} out of range [0,31] — it would be silently masked`,
+              );
             left.value_ = left.value_ >>> right.value_;
           } else {
             $$ = new BinaryExpr(left, right, OpCode.kSrl);
@@ -1876,30 +1894,37 @@ export class Context {
           const size = <integer>$(3);
           const name = <string>$(5);
 
-          if(offset < 0 || offset >= this.public_size_) {
+          if (offset < 0 || offset >= this.public_size_) {
             throw Error(
-                `Line ${this.yyline_}: Output(${this.public_size_}) offset Out-of-Range ${offset}`,
+              `Line ${this.yyline_}: Output(${this.public_size_}) offset Out-of-Range ${offset}`,
             );
           }
 
-          if(size < 1 || size > this.public_size_ || offset + size > this.public_size_) {
+          if (
+            size < 1 ||
+            size > this.public_size_ ||
+            offset + size > this.public_size_
+          ) {
             throw Error(
-                `Line ${this.yyline_}: Output(${this.public_size_}) offset/size Out-of-Range ${offset}/${size}`,
+              `Line ${this.yyline_}: Output(${this.public_size_}) offset/size Out-of-Range ${offset}/${size}`,
             );
           }
 
-          if(intType && size !== 1 && size !== 2 && size !== 4) {
+          if (intType && size !== 1 && size !== 2 && size !== 4) {
             throw Error(
-                `Line ${this.yyline_}: Output size ${size} must be 1, 2 or 4.`,
+              `Line ${this.yyline_}: Output size ${size} must be 1, 2 or 4.`,
             );
           }
 
-          if(this.output_.has(name)) {
+          if (this.output_.has(name)) {
             throw Error(`Line ${this.yyline_}: Duplicate output ${name}`);
           }
 
           this.output_.set(name, {
-            name, offset, size, intType
+            name,
+            offset,
+            size,
+            intType,
           });
         }
         break;
@@ -1922,27 +1947,27 @@ export class Context {
         break;
       case Action.AC_OUTPUT_TYPE_INTEGER:
         {
-          switch($(1)) {
-            case 'i':
+          switch ($(1)) {
+            case "i":
               $$ = true;
               break;
-            case 'x':
+            case "x":
               $$ = false;
               break;
             default:
-              throw Error(`Line ${this.yyline_} Output type ${$(1)} must be 'i' or 'x'`);
+              throw Error(
+                `Line ${this.yyline_} Output type ${$(1)} must be 'i' or 'x'`,
+              );
           }
         }
         break;
       case Action.AC_OUTPUT_SIZE:
         {
           const size = $(2);
-          if(size instanceof ConstExpr) {
+          if (size instanceof ConstExpr) {
             $$ = size.value_;
           } else {
-            throw Error(
-                `Line ${this.yyline_}: Output size must be a constant`,
-            );
+            throw Error(`Line ${this.yyline_}: Output size must be a constant`);
           }
         }
         break;

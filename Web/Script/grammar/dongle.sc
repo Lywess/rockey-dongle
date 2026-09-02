@@ -5,7 +5,7 @@
     %define SP          /[[:space:]]/
     %define HEX         /0[xX][[:xdigit:]]+/
     %define OCT         /0[0-7]+/
-    %define DEC         /[1-9][0-9]*/
+    %define DEC         /[1-9][0-9]*|0/
     %define IDEN        /[[:alpha:]][[:alnum:]_]*/
 
     %state SC_MCOMM, SC_SCOMM
