@@ -47,6 +47,10 @@ rLANGEXPORT int rLANGAPI rl_BASE64_Read(uint8_t* zOUT, const char* zIN, int zLEN
   uint8_t* p = zOUT;
 
   /*
+   *! C-04 关闭(设计决策): zLEN<0 的 strlen 模式与现状退出条件一致 ——
+   *! 循环在读到 NUL(x=0 → z64v[0]=-1)或 '=' 时终止, 恢复 strlen 转换
+   *! 不改变任何行为。真正的边界修法是给 zOUT 传入容量, 但调用端保证
+   *! 输入 NUL 终止且输出缓冲足够, 无需引入接口变更。
   if (zLEN < 0)
     zLEN = (int)strlen(zIN);
     */
@@ -135,6 +139,8 @@ rLANGEXPORT int rLANGAPI rl_BASE64Url_Read(uint8_t* zOUT, const char* zIN, int z
   uint8_t* p = zOUT;
 
   /*
+   *! C-04 关闭(设计决策): 同 rl_BASE64_Read —— strlen 模式与现状
+   *! 退出条件一致(NUL/'=' 终止), 无需恢复转换; zOUT 容量由调用端保证。
   if (zLEN < 0)
     zLEN = (int)strlen(zIN);
     */

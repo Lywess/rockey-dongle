@@ -640,7 +640,17 @@ rLANGEXPORT int rLANGAPI SM2Cipher_ASN1ToText(const uint8_t* asn1_cipher, size_t
 }
 
 Dongle::Dongle() {
+#if defined(__EMSCRIPTEN__) && defined(rLANG_WORLD_STANDALONE)
+  /* wasm: RAND_Bytes 为 JS 侧外部实现, 失败语义由宿主保证 */
   rLANG_RAND_Bytes(entropy_local_, sizeof(entropy_local_));
+#else
+  /* R5: 检查 RAND_bytes 返回值(与设备端 rockey.cc 语义对齐) */
+  for (int i = 0; i < 3; ++i) {
+    if (1 == RAND_bytes((uint8_t*)entropy_local_, (int)sizeof(entropy_local_)))
+      break;
+    memset(entropy_local_, 0, sizeof(entropy_local_));
+  }
+#endif
   InitializeEntropyLocal();
 }
 

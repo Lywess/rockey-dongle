@@ -390,7 +390,8 @@ int Utilities(int stdout_, const char* type, RockeyARM* dongle, bool adminMode, 
       result = dongle->ReadDataFile(dongle->kFactoryDataFileId, 0, &dashboard[0], sizeof(dashboard));
     if (0 == result)
       result = ReadLine(sha256, 32, EncodeFormat::kBase64, "Input SHA256(Dashboard):");
-    Sha256Ctx().Init().Update(dashboard, sizeof(dashboard)).Final(check);
+    if (0 == result) /* L-06: 仅在读取 dashboard 与输入 sha256 均成功后才哈希比对 */
+      Sha256Ctx().Init().Update(dashboard, sizeof(dashboard)).Final(check);
 
     if (0 == result && 0 != memcmp(sha256, check, 32)) {
       rl_HEX_Write(s_sha256, sha256, 32);

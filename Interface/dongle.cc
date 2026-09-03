@@ -66,7 +66,13 @@ rLANGEXPORT int rLANGAPI SM2Cipher_ASN1ToText(const uint8_t* asn1_cipher, size_t
 }
 
 Dongle::Dongle() {
-  RAND_bytes((uint8_t*)entropy_local_, (int)sizeof(entropy_local_));
+  /* R5: 检查 RAND_bytes 返回值(与设备端 rockey.cc 的重试/清零语义对齐;
+   * RAND_bytes 返回 1 表示成功) */
+  for (int i = 0; i < 3; ++i) {
+    if (1 == RAND_bytes((uint8_t*)entropy_local_, (int)sizeof(entropy_local_)))
+      break;
+    memset(entropy_local_, 0, sizeof(entropy_local_));
+  }
   InitializeEntropyLocal();
 }
 
@@ -756,6 +762,11 @@ int RockeyARM::Enum(DONGLE_INFO info[64]) {
   int result = DONGLE_CHECK(Dongle_Enum(all, &count));
   if (result < 0)
     return -1;
+
+  /* L-07: SDK 契约断言 —— SDK 文档保证最多 32 HID + 32 CCID = 64 个设备;
+   * count > 64 说明 Dongle_Enum 已越界写入 all[64](内存已损坏),
+   * 事后钳制无法挽回, 必须立即中止 */
+  DONGLE_VERIFY(count <= 64);
 
   for (int i = 0; info && i < count; ++i)
     GetRockeyDongleInfo(&info[i], all[i]);

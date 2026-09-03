@@ -163,7 +163,7 @@ int VM_t::OpFuncDataFile(uint16_t op, int argc, int32_t argv[]) {
       static constexpr int kSizeLimit = 16 * 1024;
 
       if (size <= 0 || size > kSizeLimit) {
-        value = -ERANGE;
+        value = -EINVAL; /* L-05: 非法尺寸(负/零/超限)统一无效参数 */
       } else if ((id < kUserFileID && valid_permission_ != PERMISSION::kAdministrator) || id == kKeyIdGlobalSECRET) {
         zero_ = -EACCES;
       } else {

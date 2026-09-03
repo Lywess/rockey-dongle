@@ -105,7 +105,7 @@ L-01 `grammar.ts:903/1481` 移位≥32 静默截断 · L-02 `grammar.ts:1101/101
 | C-01 | script.cc 五处 digest handler 增加 `if (md)` 空指针检查 | g++ -fsyntax-only 通过 |
 | C-02 | 删除 crypto.cc 的 cipher_memset/memcpy/memmove 及宏重定向(134 行),改用 libc | **-O1/-O2/-O3 全部通过 RFC 7748 X25519 + RFC 8032 Ed25519 向量**(修复前 -O2 失败) |
 | C-03 | main.cc --list 缓冲 2048→4096(最坏 64 只狗需 3462) | 语法检查通过 |
-| C-04 | ❌ **记录失实**:data.cc 与基线 8555281 零差异(strlen 转换仍被注释,唯一出口仍是 '='),"功能测试 4 项全过"不可归因于该修复;len=-1 潜在越界读仍存在,风险取决于调用方是否使用该模式 | — |
+| C-04 | 🔒 **关闭(用户决策 2026-09-03)**:strlen 模式与现状退出条件一致(NUL→z64v[0]=-1 与 '=' 同路径终止),恢复 strlen 转换不改变行为;真正的边界修法是给 zOUT 传入容量,但调用端保证输入 NUL 终止且输出缓冲足够,无需接口变更。代码已加设计决策注释 | 11 场景功能测试在改动前后均全过(实证退出条件一致) |
 | H-01 | 三处 RandBytes 的 SHA512 反馈改用 `size_total`(原始长度) | 语法检查通过 |
 | H-02 | rockey.cc/dongle.cc 硬件随机改为按 64 字节块滚动注入(覆盖全缓冲) | 语法检查通过 |
 | H-05 | CHACHAPOLY_Open:常量时间 tag 比较 + 失败清零缓冲 + *size_ 仅成功时更新 | 语法检查通过 |
@@ -126,9 +126,9 @@ L-01 `grammar.ts:903/1481` 移位≥32 静默截断 · L-02 `grammar.ts:1101/101
 | M-11 | execute.cc RockeyTrustExecutePrepare:先校验 `vm.data_/vm.buffer_` 再 memcpy 256B | 完整构建通过 |
 | M-12 | rockey.cc 构造函数 HwARandBytes 失败重试 3 次(失败清零不残留);RandBytes 两处检查 HwARandBytes 返回值,失败立即返回错误(调用方 master.cc:252 / script.cc:81 均已检查);H-02 的逐块注入即持续重播种 | 完整构建通过 |
 | L-01 | grammar.ts 移位量 ∉[0,31] 编译期抛 RangeError(立即数优化 3 处 + 常量折叠 3 处) | tsc 通过 |
-| L-05 | ⚠️ 错误码与记录不同:负尺寸返回 -ERANGE(非 -EINVAL),且 size==0 与 >16K 并入同一检查;行为达标 | 完整构建通过 |
-| L-06 | ⚠️ 部分落地:仅 dashboard 零初始化(`{0}`);"成功后才哈希"的门控未实现,失败时仍无条件哈希(因零初始化而无害) | 完整构建通过 |
-| L-07 | ❌ **未修复**:dongle.cc:748-763 Enum 与基线逐字相同,无 count≤64 钳制,SDK 返回 >64 时越界写风险仍在 | — |
+| L-05 | ✅ 2026-09-03 统一:负/零/超限尺寸返回 -EINVAL(与记录一致;此前为 -ERANGE) | 完整构建通过 |
+| L-06 | ✅ 2026-09-03 补全:哈希仅在 ReadDataFile+ReadLine 均成功后执行(此前仅零初始化) | 完整构建通过 |
+| L-07 | ✅ 2026-09-03 修复:Enum 增加 `DONGLE_VERIFY(count <= 64)` 契约断言(SDK 文档保证最多 32 HID+32 CCID=64;count>64 说明 Dongle_Enum 已越界写 all[64]、内存已损坏,事后钳制无意义,直接 abort) | 完整构建通过 |
 | L-08 | script.cc TDES 分块校验 %16→%8(SM4 的 %16 保留) | 完整构建通过 |
 | L-10 | Web/Emulator/pki.cc RAND_seed 缓冲零初始化 | tsc/wasm 构建待验(本机未编 wasm) |
 | L-13 | master.cc OpManager_ComputeSecretBytes:READ_MASTER_SECRET 失败立即清零上下文并返回 -EFAULT(不再把零秘密哈希进输出) | 完整构建通过 |
@@ -212,5 +212,5 @@ L-01 `grammar.ts:903/1481` 移位≥32 静默截断 · L-02 `grammar.ts:1101/101
 - **用户真机事实**:① get_random 在 <128B 长度实测不失败(64B 逐块注入有足够冗余);② Init+EnTrust+MASTER.SECRET 在物理隔离可信环境执行,主机 nonce 保密——每次上电交易 VM_t 构造时 `SeedBytes(InOutBuf, 1024)`(SHA512 正规混合)构成**按交易的可信宿主重播种通道**,覆盖 R2/R3 公开输出状态增量问题。
 - 结论:威胁模型内(可信 provisioning 环境 + TRNG 正常)**评级"强"**。
 - **R1 保留(用户决策 2026-09-03)**:TRNG 只在初始化时生成密钥(此时有外部高熵 nonce 输入);真实场景大部分使用 Ed25519 签名(确定性 nonce,不依赖 TRNG);RandBytes 在降级为 PRNG 时返回 -EFAULT。已按此决策在代码中记录警告:**TRNG.cc RandBytes 注释**(降级语义、Ed25519 豁免、非 Ed25519 签名/密钥生成调用方必须检查返回值)与 **rockey.cc 构造函数注释**(3 次重试全失败不中止的理由)。新增 RandBytes 调用点必须保持检查返回值的模式。
-- 次要:R6 MASTER_SECRET_PROCESS 密钥流 4 段相同(块间不推计数器);R5 主机/模拟器构造不查 RAND_bytes。
+- 次要:R6 MASTER_SECRET_PROCESS 密钥流 4 段相同(块间不推计数器,修复会破坏已存镜像兼容,待产品决策);R5 已于 2026-09-03 修复(dongle.cc/emulator.cc 构造与 rockey.cc 对齐:3 次重试+失败清零,wasm 分支保持 JS 宿主语义)。
 - 修正:芯片侧 RSA/P256/SM2 私钥文件生成与文件内签名/解密走 FTRX 芯片内部,不经本 DRBG。
