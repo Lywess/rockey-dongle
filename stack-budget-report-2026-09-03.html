@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RockeyDongle 固件调用栈预算分析与修复报告 · 2026-09-03</title>
+<style>
+  /* ------- 角色化色彩(明/暗切换的唯一入口, 色板已过六项校验) ------- */
+  .viz-root {
+    color-scheme: light;
+    --page:           #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1: #2a78d6;  --series-2: #eb6834;  --series-3: #1baf7a;  --series-4: #eda100;
+    --seq-light: #86b6ef; --seq-dark: #2a78d6;
+    --good:      #006300;
+    --critical:  #d03b3b;
+    --ink-on-fill: #ffffff;
+    --ink-on-yellow: #0b0b0b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --page:           #0d0d0d;
+      --surface-1:      #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1: #3987e5;  --series-2: #d95926;  --series-3: #199e70;  --series-4: #c98500;
+      --seq-light: #6da7ec; --seq-dark: #1c5cab;
+      --good:      #0ca30c;
+      --critical:  #d03b3b;
+      --ink-on-fill: #ffffff;
+      --ink-on-yellow: #0b0b0b;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --page:           #0d0d0d;
+    --surface-1:      #1a1a19;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1: #3987e5;  --series-2: #d95926;  --series-3: #199e70;  --series-4: #c98500;
+    --seq-light: #6da7ec; --seq-dark: #1c5cab;
+    --good:      #0ca30c;
+    --critical:  #d03b3b;
+    --ink-on-fill: #ffffff;
+    --ink-on-yellow: #0b0b0b;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--text-primary);
+         font: 15px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .viz-root { max-width: 1060px; margin: 0 auto; padding: 40px 28px 72px; }
+
+  header { margin-bottom: 28px; }
+  h1 { font-size: 25px; line-height: 1.3; margin: 0 0 6px; }
+  .meta { color: var(--text-secondary); font-size: 13.5px; }
+  .meta code { font-size: 12.5px; }
+
+  h2 { font-size: 18px; margin: 44px 0 4px; }
+  h2 .no { color: var(--text-muted); font-weight: 600; margin-right: 8px; }
+  .sub { color: var(--text-secondary); margin: 0 0 14px; font-size: 14px; }
+
+  /* ------- KPI 行 ------- */
+  .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin: 22px 0 6px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px 14px; }
+  .tile .label { font-size: 13px; color: var(--text-secondary); }
+  .tile .value { font-size: 30px; font-weight: 600; margin: 2px 0 0; }
+  .tile .value small { font-size: 15px; font-weight: 500; color: var(--text-secondary); margin-left: 2px; }
+  .tile .delta { font-size: 12.5px; margin-top: 2px; }
+  .delta.good { color: var(--good); }
+  .delta.mute { color: var(--text-muted); }
+
+  /* ------- 卡片/图表面板 ------- */
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px 14px; margin: 14px 0; }
+  .card h3 { font-size: 15px; margin: 0 0 2px; }
+  .card .note { color: var(--text-secondary); font-size: 13px; margin: 0 0 10px; }
+  svg { display: block; width: 100%; height: auto; font-family: inherit; }
+  svg text { fill: var(--text-secondary); }
+  svg .tick { font-size: 11px; fill: var(--text-muted); font-variant-numeric: tabular-nums; }
+  svg .cat   { font-size: 12.5px; fill: var(--text-primary); }
+  svg .val   { font-size: 12px; font-variant-numeric: tabular-nums; }
+  svg .gridline { stroke: var(--grid); stroke-width: 1; }
+  svg .budget-line { stroke: var(--baseline); stroke-width: 1; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 6px 2px 0; font-size: 13px; color: var(--text-secondary); }
+  .legend .key { display: inline-flex; align-items: center; gap: 7px; }
+  .legend .swatch { width: 12px; height: 12px; border-radius: 3px; }
+  .legend .dotkey { width: 11px; height: 11px; border-radius: 50%; }
+
+  .mark { transition: opacity .12s; cursor: default; }
+  .mark:hover, .mark:focus { opacity: .82; outline: none; }
+
+  /* ------- 提示框 ------- */
+  #tip { position: fixed; pointer-events: none; z-index: 10; display: none;
+         background: var(--surface-1); color: var(--text-primary);
+         border: 1px solid var(--border); border-radius: 8px;
+         box-shadow: 0 4px 18px rgba(0,0,0,.16); padding: 8px 11px; font-size: 12.5px; max-width: 300px; }
+  #tip .t-head { font-weight: 600; margin-bottom: 2px; }
+  #tip .t-row  { display: flex; align-items: center; gap: 7px; color: var(--text-secondary); }
+  #tip .t-row b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  #tip .t-key  { width: 10px; height: 3px; border-radius: 2px; flex: none; }
+
+  /* ------- 表格 ------- */
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; background: var(--surface-1);
+          border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; font-size: 12.5px; background: color-mix(in srgb, var(--grid) 30%, var(--surface-1)); }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td code, li code, p code { font-size: 12.5px; background: color-mix(in srgb, var(--grid) 45%, transparent); padding: 1px 5px; border-radius: 4px; }
+  .ok   { color: var(--good); font-weight: 600; }
+  .bad  { color: var(--critical); font-weight: 600; }
+
+  details { margin-top: 8px; }
+  summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+  details[open] summary { margin-bottom: 8px; }
+
+  /* ------- 修复方案卡片 ------- */
+  .fix-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-top: 14px; }
+  .fix { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+  .fix h3 { margin: 0 0 2px; font-size: 15px; }
+  .fix .tag { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px;
+              background: color-mix(in srgb, var(--series-1) 14%, transparent); color: var(--series-1); margin-bottom: 8px; }
+  .fix p, .fix li { font-size: 13.5px; color: var(--text-secondary); margin: 6px 0; }
+  .fix .num { color: var(--text-primary); font-weight: 600; }
+
+  footer { margin-top: 56px; color: var(--text-muted); font-size: 12.5px; border-top: 1px solid var(--grid); padding-top: 14px; }
+
+  #themeBtn { position: fixed; right: 18px; top: 16px; z-index: 20; border: 1px solid var(--border);
+              background: var(--surface-1); color: var(--text-secondary); border-radius: 999px;
+              padding: 5px 14px; font-size: 12.5px; cursor: pointer; }
+  #themeBtn:hover { color: var(--text-primary); }
+</style>
+</head>
+<body>
+<div class="viz-root">
+<button id="themeBtn" type="button">主题: 自动</button>
+
+<header>
+  <h1>RockeyDongle 固件调用栈预算分析与修复</h1>
+  <div class="meta">
+    2026-09-03 · 分析与修复提交 <code>70770de</code> + 栈检查工具（<code>Build/tools/stack-check/</code>）·
+    目标：Cortex-M0 (ARMv6S-M, Thumb-1) · 栈预算 <b>2032B</b>
+  </div>
+</header>
+
+<!-- ==================== 1. 结果概览 ==================== -->
+<h2><span class="no">01</span>结果概览</h2>
+<p class="sub">所有数字来自 arm-none-eabi 10.3.1（与固件构建完全一致）的 <code>-fstack-usage</code> 帧数据
++ 重定位调用图全路径扫描（工具：<code>make stack-check</code>），非估算。</p>
+
+<div class="kpi-row">
+  <div class="tile">
+    <div class="label">稳态最大调用栈深度</div>
+    <div class="value">1784<small>B</small></div>
+    <div class="delta good">↓ 660B（修复前 2444B，−27%）</div>
+  </div>
+  <div class="tile">
+    <div class="label">预算余量（/ 2032B）</div>
+    <div class="value">248<small>B · 12.2%</small></div>
+    <div class="delta good">↑ 自 −412B（越界）转正</div>
+  </div>
+  <div class="tile">
+    <div class="label">超预算路径</div>
+    <div class="value">0<small>条</small></div>
+    <div class="delta good">↓ 修复前 32 条</div>
+  </div>
+  <div class="tile">
+    <div class="label">源码改动</div>
+    <div class="value">2<small>个文件 · 95 行</small></div>
+    <div class="delta mute">sha512.cc + curve25519.cc</div>
+  </div>
+</div>
+
+<!-- ==================== 2. 问题背景 ==================== -->
+<h2><span class="no">02</span>问题背景：2032 字节的硬预算</h2>
+<p class="sub">
+固件内存布局中，栈从 <code>0x68000BF0</code>（start.s Vector[0] 设定）向下生长，到 InOutBuf 顶界
+<code>0x68000400</code> 共 <b>2032 字节</b>，且无 MPU 保护 —— 越界不会触发任何硬件异常，而是
+<b>静默覆写 InOutBuf 的脚本输入区</b>（DATA 段），属于极难察觉的深层缺陷。这即原审查报告中的 H-03。
+</p>
+<div class="card">
+  <table>
+    <tr><th>区域</th><th>地址 / 大小</th><th>说明</th></tr>
+    <tr><td>InOutBuf（<code>vm.data_</code>）</td><td><code>0x68000000</code> · 1KB</td><td>[0,256) 输出/公共区，[256,1024) 脚本输入区 —— <b>栈越界的受害者</b></td></tr>
+    <tr><td><b>栈（向下生长）</b></td><td>SP = <code>0x68000BF0</code></td><td>到 InOutBuf 顶界共 <b>2032B</b>，无溢出保护，越界即静默写穿</td></tr>
+    <tr><td>ExtendBuf（<code>vm.buffer_</code>）</td><td><code>0x68000C00</code> · 1KB</td><td>时序复用：Ed25519 Helper（恰 1024B）/ 哈希期 Sha512Ctx / ChaChaPoly / 解码上下文</td></tr>
+    <tr><td>.bss / .data / .rodata</td><td>—</td><td>链接脚本断言必须为空（BSS ≤ 16B）—— 大对象无处静态安放，只能进 ExtendBuf 或栈</td></tr>
+  </table>
+</div>
+<p class="sub">
+用户实测 Ed25519 调用链深度超过 2K+500 字节、多种手段无法完全避免。本次以精确核算替代估算，
+发现<b>真正的主凶并不是 Ed25519 本身</b>，而是 SHA-512 压缩函数的 1056B 巨帧 —— 它同时压垮三条指令链。
+</p>
+
+<!-- ==================== 3. 修复演进 ==================== -->
+<h2><span class="no">03</span>修复演进</h2>
+<p class="sub">三项独立修复，每步都以固件真实工具链实测验证。竖线为 2032B 预算红线。</p>
+<div class="card">
+  <h3>稳态最大栈深度 · 四个阶段</h3>
+  <p class="note">稳态 = 脚本执行中段的指令路径（豁免 <code>OpExecute_*</code> / <code>OpManager_*</code>，见附录）</p>
+  <div id="chart-evolution"></div>
+  <details>
+    <summary>表格视图</summary>
+    <table>
+      <tr><th>阶段</th><th class="num">最大深度 (B)</th><th class="num">相对预算 2032B</th><th>当期最深路径要点</th></tr>
+      <tr><td>修复前基线</td><td class="num">2444</td><td class="num bad">超 412</td><td>OpSecp256k1 → uECC → RNG → RandBytes → SHA512(256) → process(1056)</td></tr>
+      <tr><td>方案 1：W[16] 滚动窗口</td><td class="num">2160</td><td class="num bad">超 128</td><td>Sign(592) → ge_scalarmult(528) → ge_add(88) → fe_mul(392)</td></tr>
+      <tr><td>方案 2：Helper 联合体放 Sha512Ctx</td><td class="num">1928</td><td class="num ok">余 104</td><td>Verify(368) → ge 链（同上）</td></tr>
+      <tr><td>方案 3：noinline ×2 + Verify 免拷贝</td><td class="num">1784</td><td class="num ok">余 248</td><td>Verify(224) → ge 链（同上）</td></tr>
+    </table>
+  </details>
+</div>
+
+<!-- ==================== 4. 修复前违规家族 ==================== -->
+<h2><span class="no">04</span>修复前的 32 条违规路径：三个家族，一个主凶</h2>
+<div class="card">
+  <table>
+    <tr><th>违规家族（稳态指令）</th><th class="num">深度</th><th class="num">超出</th><th>路径构成</th></tr>
+    <tr><td>OpSecp256k1（uECC 签名）</td><td class="num">2444</td><td class="num">412</td>
+        <td>签名深处取随机数 → <code>RandBytes(104)</code> → <code>Dongle::SHA512(256)</code> → <code>internal_sha512_process(1056)</code></td></tr>
+    <tr><td>OpFuncP256（uECC 密钥生成）</td><td class="num">2356</td><td class="num">324</td>
+        <td><code>uECC_make_key</code> → RNG → 同一条 SHA-512 链</td></tr>
+    <tr><td>OpEd25519（SHA-512 路由）</td><td class="num">2204</td><td class="num">172</td>
+        <td><code>Sign(592)</code> → <code>internal_sha512_process(1056)</code></td></tr>
+    <tr><td>OpEd25519（ge 路由）</td><td class="num">2160</td><td class="num">128</td>
+        <td><code>Sign(592)</code> → <code>ge_scalarmult(528)</code> → <code>ge_add(88)</code> → <code>fe_mul(392)</code></td></tr>
+  </table>
+  <p class="note" style="margin-top:10px">
+    三条链全部终于同一个 <b>1056B</b> 的 <code>internal_sha512_process</code>：M0 仅 8 个可用寄存器，
+    SHA-512 的 <code>W[80]</code>（640B）加 8 个 64 位工作变量的溢出构成巨帧。
+    修好它（方案 1），Secp256k1 / P256 / Ed25519-SHA512 三条链同时脱险。
+  </p>
+</div>
+
+<!-- ==================== 5. 关键帧前后对照 ==================== -->
+<h2><span class="no">05</span>关键函数栈帧：修复前后对照</h2>
+<div class="card">
+  <h3>帧大小 (B) · Cortex-M0 实测（.su）</h3>
+  <div id="chart-dumbbell"></div>
+  <div class="legend" id="legend-dumbbell"></div>
+  <details open>
+    <summary>表格视图</summary>
+    <table>
+      <tr><th>函数</th><th class="num">修复前</th><th class="num">修复后</th><th class="num">Δ</th><th>手段</th></tr>
+      <tr><td><code>internal_sha512_process</code></td><td class="num">1056</td><td class="num">360</td><td class="num ok">−696</td><td>W[80]→W[16] 滚动窗口</td></tr>
+      <tr><td><code>Ed25519::Sign</code></td><td class="num">592</td><td class="num">40</td><td class="num ok">−552</td><td>ctx 入 Helper + sc_muladd 不内联</td></tr>
+      <tr><td><code>Ed25519::Verify</code></td><td class="num">568</td><td class="num">224</td><td class="num ok">−344</td><td>ctx 入 Helper + frombytes 不内联 + 免拷贝</td></tr>
+      <tr><td><code>Ed25519::ComputePubkey</code></td><td class="num">272</td><td class="num">32</td><td class="num ok">−240</td><td>ctx 入 Helper 联合体死区</td></tr>
+      <tr><td><code>Start</code>（Dongle+VM_t）</td><td class="num">376</td><td class="num">376</td><td class="num">—</td><td>未改动（对照）</td></tr>
+      <tr><td><code>Helper::ge_scalarmult</code></td><td class="num">528</td><td class="num">528</td><td class="num">—</td><td>未改动（对照）</td></tr>
+      <tr><td><code>fe_mul</code></td><td class="num">392</td><td class="num">392</td><td class="num">—</td><td>未改动（对照）</td></tr>
+    </table>
+  </details>
+</div>
+
+<!-- ==================== 6. 最深路径解剖 ==================== -->
+<h2><span class="no">06</span>当前最深路径解剖：1784B / 2032B</h2>
+<div class="card">
+  <h3>Verify 签名验证链的逐帧构成</h3>
+  <p class="note">整条 = 预算红线；灰段为剩余余量。悬停查看每个分组的逐函数帧明细。</p>
+  <div id="chart-path"></div>
+  <div class="legend" id="legend-path"></div>
+  <details>
+    <summary>表格视图</summary>
+    <table>
+      <tr><th>分组</th><th class="num">帧 (B)</th><th>构成（帧大小）</th></tr>
+      <tr><td>VM 框架</td><td class="num">504</td><td>app_entry(8) · Start(376) · Execute(40) · OpEd25519(56) · VerifySignEd25519(24)</td></tr>
+      <tr><td>Ed25519::Verify</td><td class="num">224</td><td>Verify(224)</td></tr>
+      <tr><td>ge 运算</td><td class="num">664</td><td>ge_scalarmult_base(16) · ge_scalarmult(528) · ge_add(88) · ge_p1p1_to_p3(32)</td></tr>
+      <tr><td>域乘 fe_mul</td><td class="num">392</td><td>fe_mul(392)</td></tr>
+      <tr><td><b>合计</b></td><td class="num"><b>1784</b></td><td>余量 248B（12.2%）</td></tr>
+    </table>
+  </details>
+  <p class="note" style="margin-top:10px">
+    若未来需要更大余量，备选杠杆：<code>ge_scalarmult</code> 528B（疑含两次 160B 结构拷贝临时量）、
+    <code>fe_mul</code> 392B（可串行化至 ~200B）—— 当前 248B 余量暂无必要。
+  </p>
+</div>
+
+<!-- ==================== 7. 三项修复详情 ==================== -->
+<h2><span class="no">07</span>三项修复详情</h2>
+<div class="fix-grid">
+  <div class="fix">
+    <span class="tag">方案 1 · sha512.cc</span>
+    <h3>W[80] → W[16] 滚动窗口</h3>
+    <p>SHA-512 消息调度改为 16 字滚动窗口（标准 mbedTLS 技术，索引映射 <code>i−2≡i+14, i−7≡i+9, i−15≡i+1, i−16≡i</code> mod 16），8 轮展开改为带寄存器轮转的紧凑循环。</p>
+    <ul>
+      <li>帧 <span class="num">1056 → 360B</span>（原型预实测，落库分毫不差）</li>
+      <li>process 代码 <span class="num">−1.9KB</span>（定长镜像内空闲填充吸收）</li>
+      <li>三条 SHA-512 链同时脱险</li>
+    </ul>
+  </div>
+  <div class="fix">
+    <span class="tag">方案 2 · curve25519.cc</span>
+    <h3>Sha512Ctx 入 Helper 联合体死区</h3>
+    <p>Helper 的 <code>union{q | qc+p1p1}</code>（320B）在所有哈希期死亡 —— ge 临时量不跨哈希存活。加入
+    <code>alignas(Sha512Ctx) uint8_t[240]</code> + 访问器，替换 5 处 240B 栈临时。</p>
+    <ul>
+      <li>死区断言逐一核实（含 <code>ge_frombytes_vartime</code> 仅用栈局部量）</li>
+      <li><code>static_assert(sizeof(Helper) ≤ 1024)</code> 编译期通过</li>
+      <li>Sign <span class="num">592→344</span> · Verify <span class="num">568→368</span> · ComputePubkey <span class="num">272→32</span></li>
+    </ul>
+  </div>
+  <div class="fix">
+    <span class="tag">方案 3 · curve25519.cc</span>
+    <h3>noinline ×2 + Verify 免拷贝</h3>
+    <p>关键洞察：<code>sc_muladd</code> 只在 Sign 末尾、<code>ge_frombytes_vartime</code> 只在 Verify 开头执行，
+    与 ge 链<b>时序不重叠</b> —— 独立成帧即可，无需搬迁工作区。</p>
+    <ul>
+      <li>sc_muladd 独立帧 336B，Sign <span class="num">344→40</span></li>
+      <li>frombytes 独立帧 344B，Verify <span class="num">368→224</span></li>
+      <li>删除 rcopy/scopy（全程只读 signature，−64B）</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ==================== 8. 验证矩阵 ==================== -->
+<h2><span class="no">08</span>验证矩阵</h2>
+<div class="card">
+  <table>
+    <tr><th>验证项</th><th>覆盖内容</th><th>结果</th></tr>
+    <tr><td><code>__Testing__25519__</code>（aarch64）</td><td>RFC 8032 全向量 + 独立参考实现 —— Sign / Verify / ComputePubkey 三入口，SHA-512 全路径</td><td class="ok">0 错误</td></tr>
+    <tr><td><code>__Testing__sha256__</code> / <code>__Testing__micro_ecc__</code></td><td>哈希与 uECC 回归（uECC 链即修复的 RNG→SHA512 路径）</td><td class="ok">0 错误</td></tr>
+    <tr><td><code>__Testing__dongle__</code>（foobar 模拟器）</td><td>端到端：脚本执行 / 密钥 / 签名 / 主密钥流</td><td class="ok">0 错误</td></tr>
+    <tr><td><code>__Testing__25519__</code>（foobar）</td><td>模拟器后端 Ed25519 回归</td><td class="ok">0 错误</td></tr>
+    <tr><td>SHA-512 直接向量</td><td>生产代码机械提取，长度 0–600 一次性 + 8 种分段边界（覆盖全部 128B 块边界与 padding 路径）+ SHA-384 抽查，对 Python hashlib</td><td class="ok">4808 / 4808</td></tr>
+    <tr><td>固件 <code>.su</code> 逐帧核实</td><td>每步修复后反汇编核对帧大小与原型预测一致</td><td class="ok">一致</td></tr>
+    <tr><td>全链栈重扫描</td><td><code>make stack-check</code>（32 → 8 → 0 条违规）</td><td class="ok">0 违规</td></tr>
+    <tr><td>Helper 尺寸断言</td><td><code>rLANG_ABIREQUIRE(sizeof(Helper) ≤ 1024)</code></td><td class="ok">通过</td></tr>
+  </table>
+</div>
+
+<!-- ==================== 9. 守门工具 ==================== -->
+<h2><span class="no">09</span>守门工具：make stack-check</h2>
+<div class="card">
+  <p class="note" style="margin-top:0">本次分析工具已固化为仓库工具 —— 以后任何改动跑一遍即可守住 2032B 红线。</p>
+  <table>
+    <tr><th>项</th><th>说明</th></tr>
+    <tr><td><b>用法</b></td><td><code>make stack-check</code>（自动先构建固件）；退出码 <code>0</code>=无违规、<code>10</code>=超预算，可接 CI</td></tr>
+    <tr><td><b>原理</b></td><td>编译期 <code>-fstack-usage</code> 帧数据 + <code>objdump -dr</code> 重定位（<code>R_ARM_THM_CALL/JUMP24</code>）还原调用图，从 <code>app_entry</code> 全路径 DFS</td></tr>
+    <tr><td><b>关键坑位</b></td><td>跨段调用真实目标只在重定位行（<code>-ffunction-sections</code> 占位符）；<code>symbol+0x</code> 为函数内跳转须过滤；重载靠"名字( + 参数个数"锚定匹配区分</td></tr>
+    <tr><td><b>局限</b></td><td>函数指针不可见（本工程 VM 派发为直接调用，已核实）；汇编例程（<code>__aeabi_*</code>）无 .su 按帧 0 计并告警为下界</td></tr>
+  </table>
+</div>
+
+<!-- ==================== 10. 附录 ==================== -->
+<h2><span class="no">10</span>附录：豁免语义与设计约束</h2>
+<div class="card">
+  <table>
+    <tr><th>范围</th><th>栈深约束</th><th>依据</th></tr>
+    <tr><td><code>OpExecute_*</code></td><td>豁免（路径终点）</td><td>总在调用栈末尾执行，执行后程序立即退出 —— 正是为隔离深栈操作而刻意封装；溢出无副作用</td></tr>
+    <tr><td><code>OpManager_*</code></td><td>豁免（路径终点）</td><td>系统初始化专用，初始化完成后不再使用，或运行后改变设备身份，运行时不包含敏感信息</td></tr>
+    <tr><td>稳态脚本指令</td><td><b>受 2032B 约束</b></td><td>本报告的检查对象；被豁免函数调用的公共子函数（如 <code>Ed25519::Sign</code>）在稳态路径上照常计入</td></tr>
+    <tr><td>wasm / 宿主 / 模拟器</td><td>无栈约束</td><td>调用栈可认为很大，只需程序逻辑正确；栈约束仅存在于 dongle 固件</td></tr>
+  </table>
+  <p class="note" style="margin-top:10px">
+    豁免按"路径终点"而非"子树"实现：整子树豁免会把同时被稳态指令调用的公共函数一并放走，造成漏报。
+    全量模式（含豁免路径）当前 2304B，仅供参考。
+  </p>
+</div>
+
+<footer>
+  生成于 2026-09-03 · RockeyDongle 固件栈预算分析与修复 · 源码提交 <code>70770de</code> ·
+  上下文记录 <code>bug-analysis-context-2026-9-1.md</code>（H-03 专项）·
+  图表数据全部来自 <code>make stack-check</code> 实测
+</footer>
+</div>
+
+<div id="tip" role="tooltip"></div>
+
+<script>
+"use strict";
+/* ================= 数据(全部来自 .su 实测) ================= */
+const BUDGET = 2032;
+const stages = [
+  { name: "修复前基线",       v: 2444 },
+  { name: "方案1 W[16]",      v: 2160 },
+  { name: "方案2 Helper ctx", v: 1928 },
+  { name: "方案3 noinline",   v: 1784 },
+];
+const frames = [
+  { name: "internal_sha512_process", before: 1056, after: 360 },
+  { name: "Ed25519::Sign",           before: 592,  after: 40  },
+  { name: "Ed25519::Verify",         before: 568,  after: 224 },
+  { name: "Ed25519::ComputePubkey",  before: 272,  after: 32  },
+  { name: "Start (Dongle+VM_t)",     before: 376,  after: 376 },
+  { name: "Helper::ge_scalarmult",   before: 528,  after: 528 },
+  { name: "fe_mul",                  before: 392,  after: 392 },
+];
+const pathGroups = [
+  { group: "VM 框架",          bytes: 504, fns: "app_entry 8 · Start 376 · Execute 40 · OpEd25519 56 · VerifySignEd25519 24" },
+  { group: "Ed25519::Verify",  bytes: 224, fns: "Verify 224" },
+  { group: "ge 运算",          bytes: 664, fns: "ge_scalarmult_base 16 · ge_scalarmult 528 · ge_add 88 · ge_p1p1_to_p3 32" },
+  { group: "fe_mul 域乘",      bytes: 392, fns: "fe_mul 392" },
+];
+
+/* ================= 主题 ================= */
+const root = document.querySelector(".viz-root");
+const themeBtn = document.getElementById("themeBtn");
+let themeMode = "auto";                       /* auto | light | dark */
+function applyTheme() {
+  if (themeMode === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", themeMode);
+  renderAll();
+}
+themeBtn.addEventListener("click", () => {
+  themeMode = themeMode === "auto" ? "light" : themeMode === "light" ? "dark" : "auto";
+  themeBtn.textContent = "主题: " + (themeMode === "auto" ? "自动" : themeMode === "light" ? "明亮" : "暗色");
+  applyTheme();
+});
+/* OS 明暗切换时重绘(SVG 内联色在渲染期读取 CSS 变量) */
+try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll); } catch (e) {}
+const css = n => getComputedStyle(root).getPropertyValue(n).trim();
+
+/* ================= 提示框(textContent 组装, 不经 innerHTML 拼接) ================= */
+const tip = document.getElementById("tip");
+function tipRows(rows) {
+  tip.replaceChildren();
+  rows.forEach(([strong, rest, keyColor]) => {
+    if (keyColor) { const k = document.createElement("span"); k.className = "t-key"; k.style.background = keyColor; tip.append(k); }
+    const line = document.createElement("div"); line.className = "t-row";
+    if (strong) { const b = document.createElement("b"); b.textContent = strong; line.append(b); }
+    if (rest) { const s = document.createElement("span"); s.textContent = rest; line.append(s); }
+    tip.append(line);
+  });
+  tip.style.display = "block";
+}
+function tipMove(e) {
+  const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  if (x + w > innerWidth - 8) x = e.clientX - w - pad;
+  if (y + h > innerHeight - 8) y = e.clientY - h - pad;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+function tipHide() { tip.style.display = "none"; }
+function bindTip(el, build) {
+  el.addEventListener("pointerenter", e => { tipRows(build()); tipMove(e); });
+  el.addEventListener("pointermove", tipMove);
+  el.addEventListener("pointerleave", tipHide);
+  el.addEventListener("focus", () => {
+    tipRows(build());
+    const r = el.getBoundingClientRect();
+    tip.style.left = Math.min(r.right + 12, innerWidth - tip.offsetWidth - 8) + "px";
+    tip.style.top = Math.max(8, r.top - tip.offsetHeight - 8) + "px";
+  });
+  el.addEventListener("blur", tipHide);
+}
+
+/* ================= SVG 工具 ================= */
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function text(parent, x, y, str, cls, anchor, fill, weight) {
+  const t = el("text", { x, y, "text-anchor": anchor || "start" }, parent);
+  if (cls) t.setAttribute("class", cls);
+  if (fill) t.setAttribute("fill", fill);
+  if (weight) t.setAttribute("font-weight", weight);
+  t.textContent = str;
+  return t;
+}
+/* 数据端 4px 圆角、基线端方角的横向条形路径 */
+function barPath(x, y, w, h) {
+  const r = Math.min(4, w / 2, h / 2);
+  return `M${x},${y} h${w - r} a${r},${r} 0 0 1 ${r},${r} v${h - 2 * r} a${r},${r} 0 0 1 -${r},${r} h-${w - r} Z`;
+}
+
+/* ================= 图 1: 修复演进(单系列水平条 + 预算线) ================= */
+function renderEvolution() {
+  const host = document.getElementById("chart-evolution");
+  host.replaceChildren();
+  const W = 850, rowH = 46, topPad = 40, H = topPad + stages.length * rowH + 30;
+  const x0 = 150, x1 = 760, MAXV = 2600;
+  const px = v => x0 + (v / MAXV) * (x1 - x0);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
+    "aria-label": "修复演进: 修复前 2444B 超预算 412B; 方案1 2160B 超 128B; 方案2 1928B 余 104B; 方案3 1784B 余 248B" }, host);
+
+  for (let g = 0; g <= 2500; g += 500) {                       /* 网格 + 刻度 */
+    el("line", { x1: px(g), y1: topPad - 14, x2: px(g), y2: H - 26, class: "gridline" }, svg);
+    text(svg, px(g), H - 10, g.toLocaleString("en-US"), "tick", "middle");
+  }
+  el("line", { x1: px(BUDGET), y1: topPad - 22, x2: px(BUDGET), y2: H - 26, class: "budget-line" }, svg);
+  text(svg, px(BUDGET), topPad - 26, "预算 2032B", "tick", "middle");
+
+  stages.forEach((s, i) => {
+    const y = topPad + i * rowH, barH = 20;
+    const g = el("g", { class: "mark", tabindex: "0",
+      "aria-label": `${s.name} 最大深度 ${s.v}B` }, svg);
+    text(svg, x0 - 10, y + barH / 2 + 4, s.name, "cat", "end");
+    el("path", { d: barPath(x0, y, px(s.v) - x0, barH), fill: css("--series-1") }, g);
+    const over = s.v > BUDGET;
+    const note = over ? `超${s.v - BUDGET}` : `余${BUDGET - s.v}`;
+    text(svg, px(s.v) + 8, y + barH / 2 + 4, `${s.v}B ${note}`, "val", "start",
+         over ? css("--critical") : css("--good"), "600");
+    bindTip(g, () => [
+      [null, s.name],
+      [`${s.v}B`, ` / 预算 2032B`],
+      [null, over ? `超出预算 ${s.v - BUDGET}B` : `余量 ${BUDGET - s.v}B`],
+    ]);
+  });
+}
+
+/* ================= 图 2: 帧前后哑铃(1 色 2 阶) ================= */
+function renderDumbbell() {
+  const host = document.getElementById("chart-dumbbell");
+  host.replaceChildren();
+  const legend = document.getElementById("legend-dumbbell");
+  legend.replaceChildren();
+  const cLight = css("--seq-light"), cDark = css("--seq-dark"), surface = css("--surface-1");
+  [["修复前", cLight], ["修复后", cDark]].forEach(([name, c]) => {
+    const key = document.createElement("span"); key.className = "key";
+    const dot = document.createElement("span"); dot.className = "dotkey";
+    dot.style.background = c; dot.style.boxShadow = `0 0 0 2px ${surface}`;
+    const lb = document.createElement("span"); lb.textContent = name;
+    key.append(dot, lb); legend.append(key);
+  });
+
+  const W = 780, rowH = 42, topPad = 24, H = topPad + frames.length * rowH + 28;
+  const x0 = 215, x1 = 660, MAXV = 1100, dcol = 716;
+  const px = v => x0 + (v / MAXV) * (x1 - x0);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
+    "aria-label": "关键函数帧大小修复前后对照哑铃图, 单位字节" }, host);
+  text(svg, dcol, topPad - 6, "Δ(B)", "tick", "middle");
+
+  for (let g = 0; g <= 1000; g += 250) {
+    el("line", { x1: px(g), y1: topPad, x2: px(g), y2: H - 24, class: "gridline" }, svg);
+    text(svg, px(g), H - 8, g.toLocaleString("en-US"), "tick", "middle");
+  }
+  frames.forEach((f, i) => {
+    const y = topPad + i * rowH + rowH / 2;
+    const same = f.before === f.after;
+    const g = el("g", { class: "mark", tabindex: "0",
+      "aria-label": `${f.name} 修复前 ${f.before}B, 修复后 ${f.after}B` }, svg);
+    text(svg, x0 - 10, y + 4, f.name, "cat", "end");
+    if (same) {
+      el("circle", { cx: px(f.before), cy: y, r: 5, fill: cDark, stroke: surface, "stroke-width": 2 }, g);
+      text(svg, px(f.before), y - 10, `${f.before}B · 未改动`, "val", "middle");
+    } else {
+      el("line", { x1: px(f.before), y1: y, x2: px(f.after), y2: y,
+        stroke: css("--baseline"), "stroke-width": 2, "stroke-linecap": "round" }, g);
+      el("circle", { cx: px(f.before), cy: y, r: 5, fill: cLight, stroke: surface, "stroke-width": 2 }, g);
+      el("circle", { cx: px(f.after), cy: y, r: 5, fill: cDark, stroke: surface, "stroke-width": 2 }, g);
+      text(svg, px(f.before), y - 10, f.before + "B", "val", "middle");
+      text(svg, px(f.after), y + 17, f.after + "B", "val", "middle");
+    }
+    const d = f.after - f.before;
+    text(svg, dcol, y + 4, d === 0 ? "—" : (d < 0 ? "−" : "+") + Math.abs(d), "val", "middle",
+         d < 0 ? css("--good") : d === 0 ? css("--text-muted") : css("--critical"), "600");
+    bindTip(g, () => [
+      [null, f.name],
+      [`${f.before}B`, " 修复前", cLight],
+      [`${f.after}B`, " 修复后", cDark],
+    ]);
+  });
+}
+
+/* ================= 图 3: 最深路径堆叠计量条(4 分类组 + 余量轨道) ================= */
+function renderPath() {
+  const host = document.getElementById("chart-path");
+  host.replaceChildren();
+  const legend = document.getElementById("legend-path");
+  legend.replaceChildren();
+  const series = ["--series-1", "--series-2", "--series-3", "--series-4"];
+  const cols = series.map(css);
+
+  pathGroups.forEach((p, i) => {
+    const key = document.createElement("span"); key.className = "key";
+    const sw = document.createElement("span"); sw.className = "swatch";
+    sw.style.background = cols[i];
+    const lb = document.createElement("span"); lb.textContent = `${p.group} ${p.bytes}B`;
+    key.append(sw, lb); legend.append(key);
+  });
+  const trackKey = document.createElement("span"); trackKey.className = "key";
+  const trackSw = document.createElement("span"); trackSw.className = "swatch";
+  trackSw.style.background = css("--grid");
+  const trackLb = document.createElement("span"); trackLb.textContent = "余量 248B";
+  trackKey.append(trackSw, trackLb); legend.append(trackKey);
+
+  const W = 780, H = 122;
+  const x0 = 130, x1 = 745, y = 36, barH = 24, GAP = 2;
+  const px = v => x0 + (v / BUDGET) * (x1 - x0);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
+    "aria-label": "最深路径 1784B 构成: VM框架 504, Verify 224, ge运算 664, fe_mul 392, 余量 248" }, host);
+
+  for (let g = 0; g <= 2000; g += 500) {
+    el("line", { x1: px(g), y1: y - 12, x2: px(g), y2: y + barH + 10, class: "gridline" }, svg);
+    text(svg, px(g), y + barH + 26, g.toLocaleString("en-US"), "tick", "middle");
+  }
+  text(svg, x1, y - 16, "预算红线 2032B", "tick", "end");
+  text(svg, x0, y - 16, "最深路径 1784B", "val", "start", null, "600");
+
+  /* 轨道(整条 = 预算) */
+  el("rect", { x: x0, y, width: x1 - x0, height: barH, rx: 4, fill: css("--grid") }, svg);
+
+  let cx = x0;
+  pathGroups.forEach((p, i) => {
+    const isLast = i === pathGroups.length - 1;
+    const w = (p.bytes / BUDGET) * (x1 - x0) - (isLast ? 0 : GAP);
+    const g = el("g", { class: "mark", tabindex: "0", "aria-label": `${p.group} ${p.bytes}B` }, svg);
+    /* 末段数据端 4px 圆角, 其余方角(段间靠 2px 表面色缝隙分隔) */
+    if (isLast) el("path", { d: barPath(cx, y, w, barH), fill: cols[i] }, g);
+    else el("rect", { x: cx, y, width: Math.max(w, 4), height: barH, fill: cols[i] }, g);
+    /* 段内标签: 宽度装得下才放(黄色段用深墨, 其余白墨) */
+    const label = `${p.group} ${p.bytes}`;
+    const est = label.length * 6.6;
+    if (est <= w - 14)
+      text(svg, cx + 7, y + barH / 2 + 4, label, "val", null,
+           i === 3 ? css("--ink-on-yellow") : css("--ink-on-fill"));
+    else if (String(p.bytes).length * 6.6 <= w - 12)
+      text(svg, cx + 6, y + barH / 2 + 4, String(p.bytes), "val", null,
+           i === 3 ? css("--ink-on-yellow") : css("--ink-on-fill"));
+    bindTip(g, () => [
+      [null, `${p.group} · ${p.bytes}B`],
+      [null, p.fns],
+      [`${(100 * p.bytes / 1784).toFixed(0)}%`, " 占最深路径 1784B"],
+    ]);
+    cx += w + GAP;
+  });
+  /* 余量段 */
+  const marginG = el("g", { class: "mark", tabindex: "0", "aria-label": "预算余量 248B" }, svg);
+  text(svg, Math.min(cx + 7, x1 - 46), y + barH / 2 + 4, "余量 248", "val", null, css("--text-secondary"));
+  bindTip(marginG, () => [
+    [null, "预算余量 · 248B"],
+    [null, "最深路径 1784B / 预算 2032B"],
+    ["12.2%", " 余量率"],
+  ]);
+}
+
+function renderAll() { renderEvolution(); renderDumbbell(); renderPath(); }
+renderAll();
+</script>
+</body>
+</html>

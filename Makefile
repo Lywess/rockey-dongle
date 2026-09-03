@@ -7,7 +7,7 @@ X4C_NODE ?= $(shell if [ -e /Machine/System/bin/node-rlang ] ; then echo /Machin
 
 .PHONY : wasm wasmjs cygwin linux aarch64-linux windows all-platform bootstrap install install-platform
 .PHONY : clean-wasm clean-wasmjs clean-cygwin clean-linux clean-aarch64-linux clean-windows clean-all-platform
-.PHONY : typescript typescript0 docker all-docker dongle clean-dongle foobar clean-foobar sec-bin
+.PHONY : typescript typescript0 docker all-docker dongle clean-dongle foobar clean-foobar sec-bin stack-check
 
 ##
 ## default build Release version ...
@@ -52,6 +52,12 @@ SO_INSTALL_MODE ?= 644
 ##
 wORLD_DEFAULT_DONGLE ?= RockeyARM
 wORLD_DONGLE ?= $(wORLD_DEFAULT_DONGLE)
+
+##
+##
+## 调用栈深度静态检查(退出码 0=无违规 10=超预算) ...
+stack-check: dongle
+	@$(X4C_NODE) $(wORLD_ROOT)/Build/tools/stack-check/stack-check.cjs
 
 ##
 ##

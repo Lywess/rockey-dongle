@@ -1243,7 +1243,11 @@ static void ge_p3_tobytes(uint8_t* s, const ge_p3* h) {
     v[9] = a9;                                             \
   } while (0)
 
-static int ge_frombytes_vartime(ge_p3* h, const uint8_t* s) {
+/**
+ *! noinline: 本函数的 7 个 fe 局部量(~280B)若内联将撑大 Verify 帧;
+ *! 它在 Verify 开头执行, 与其后的 ge_scalarmult 链时序不重叠, 独立成帧即可
+ */
+static int __attribute__((noinline)) ge_frombytes_vartime(ge_p3* h, const uint8_t* s) {
   fe u;
   fe v;
   fe v3;
@@ -1643,7 +1647,12 @@ static void x25519_sc_reduce(uint8_t* s) {
  * Output:
  *   s[0]+256*s[1]+...+256^31*s[31] = (ab+c) mod l
  *   where l = 2^252 + 27742317777372353535851937790883648493. */
-static void sc_muladd(uint8_t* s, const uint8_t* a, const uint8_t* b, const uint8_t* c) {
+/**
+ *! noinline: sc_muladd 只在 Sign 末尾执行, 与 ge 运算时序不重叠 ——
+ *! 独立成帧(M0 实测 336B)后, Sign 帧不再包含其 ~180B 局部量,
+ *! Sign→ge_scalarmult→fe_mul 链得以脱离 2032B 栈预算红线
+ */
+static void __attribute__((noinline)) sc_muladd(uint8_t* s, const uint8_t* a, const uint8_t* b, const uint8_t* c) {
   int64_t a0 = 2097151 & load_3(a);
   int64_t a1 = 2097151 & (load_4(a + 2) >> 5);
   int64_t a2 = 2097151 & (load_3(a + 5) >> 2);
@@ -2223,13 +2232,24 @@ struct Helper {
     ge_scalarmult(h, a, h);
   }
 
+  /**
+   *! Sha512Ctx 借用 q/qc/p1p1 的联合体空间: 两者时序不重叠 ——
+   *! q/qc/p1p1 仅在 ge_add/ge_dbl 调用内作为临时量存活, 不跨哈希;
+   *! 三个入口(ComputePubkey/Sign/Verify)的所有哈希都发生在 ge 运算之前/之后。
+   *! 借此消除 Sign/Verify/ComputePubkey 各自 240B 的 Sha512Ctx 栈临时。
+   */
+  Sha512Ctx& sha512_ctx() {
+    return *reinterpret_cast<Sha512Ctx*>(sha512_ctx_);
+  }
+
   union {
     ge_p1p1 q;  // ge_dbl
     struct {
       ge_cached qc;  // ge_add
       ge_p1p1 p1p1;  // ge_add
     };
-  };  
+    alignas(Sha512Ctx) uint8_t sha512_ctx_[sizeof(Sha512Ctx)];  // 哈希期专用
+  };
 
   ge_p3 T, A;    // ge_scalarmult
   ge_p3 AR;      // pubkey/sign/verify ...
@@ -2317,7 +2337,7 @@ void Ed25519::ComputePubkey(void* vExtBuffer, uint8_t pubkey[32], const uint8_t 
   Helper* helper = static_cast<Helper*>(vExtBuffer);
 
   uint8_t* const az = helper->sha512;
-  Sha512Ctx().Init().Update(prikey, 32).Final(az).Clear();
+  helper->sha512_ctx().Init().Update(prikey, 32).Final(az).Clear();
 
   az[0] &= 248;
   az[31] &= 63;
@@ -2335,9 +2355,7 @@ int Ed25519::Verify(void* vExtBuffer,
                     const uint8_t public_key[32]) {
   Helper* helper = static_cast<Helper*>(vExtBuffer);
 
-  
-  uint8_t rcopy[32];
-  uint8_t scopy[32];
+  /* rcopy/scopy 已删除: Verify 全程只读 signature(哈希/标量乘/比较均不写它), 无需 64B 栈拷贝 */
   uint8_t rcheck[32];
   uint8_t* const h = helper->sha512;
   ge_p3& A = helper->VA;
@@ -2350,20 +2368,17 @@ int Ed25519::Verify(void* vExtBuffer,
   fe_neg(A.X, A.X);
   fe_neg(A.T, A.T);
 
-  memcpy(rcopy, signature, 32);
-  memcpy(scopy, signature + 32, 32);
-
-  Sha512Ctx().Init().Update(signature, 32).Update(public_key, 32).Update(message, message_len).Final(h).Clear();
+  helper->sha512_ctx().Init().Update(signature, 32).Update(public_key, 32).Update(message, message_len).Final(h).Clear();
 
   x25519_sc_reduce(h);
-  helper->ge_scalarmult_base(&R, scopy);
+  helper->ge_scalarmult_base(&R, signature + 32);
   helper->ge_scalarmult(&A, h, &A);
   helper->ge_add(&R, &R, &A);
   ge_tobytes(rcheck, &R);
 
   int r = 0, i;
   for (i = 0; i < 32; ++i) {
-    r += rcheck[i] ^ rcopy[i];
+    r += rcheck[i] ^ signature[i];
   }
   return r;
 }
@@ -2381,19 +2396,19 @@ void Ed25519::Sign(void* vExtBuffer,
   uint8_t* const nonce = helper->sha512_nonce;
   uint8_t* const hram = helper->sha512;
 
-  Sha512Ctx().Init().Update(private_key, 32).Final(az).Clear();
+  helper->sha512_ctx().Init().Update(private_key, 32).Final(az).Clear();
 
   az[0] &= 248;
   az[31] &= 63;
   az[31] |= 64;
 
-  Sha512Ctx().Init().Update(&az[32], 32).Update(message, message_len).Final(nonce).Clear();
+  helper->sha512_ctx().Init().Update(&az[32], 32).Update(message, message_len).Final(nonce).Clear();
 
   x25519_sc_reduce(nonce);
   helper->ge_scalarmult_base(&R, nonce);
   ge_p3_tobytes(out_sig, &R);
 
-  Sha512Ctx().Init().Update(out_sig, 32).Update(public_key, 32).Update(message, message_len).Final(hram).Clear();
+  helper->sha512_ctx().Init().Update(out_sig, 32).Update(public_key, 32).Update(message, message_len).Final(hram).Clear();
 
   x25519_sc_reduce(hram);
   sc_muladd(out_sig + 32, hram, az, nonce);

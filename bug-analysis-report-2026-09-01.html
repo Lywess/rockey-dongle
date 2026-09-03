@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rockey-Dongle 项目安全审查与难度评估报告</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --ink-1: #0b0b0b;
+    --ink-2: #52514e;
+    --ink-muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --sev-critical: #d03b3b;
+    --sev-high: #ec835a;
+    --sev-medium: #fab219;
+    --sev-low: #898781;
+    --seg-critical: #0d366b;
+    --seg-high: #1c5cab;
+    --seg-medium: #3987e5;
+    --seg-low: #86b6ef;
+    --series-blue: #2a78d6;
+    --good-text: #006300;
+    --card: #ffffff;
+    --code-bg: #f0efec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1: #1a1a19;
+      --page: #0d0d0d;
+      --ink-1: #ffffff;
+      --ink-2: #c3c2b7;
+      --ink-muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255,255,255,0.10);
+      --seg-critical: #184f95;
+      --seg-high: #2a78d6;
+      --seg-medium: #6da7ec;
+      --seg-low: #b7d3f6;
+      --series-blue: #3987e5;
+      --good-text: #0ca30c;
+      --card: #1f1f1e;
+      --code-bg: #2a2a28;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --page: #0d0d0d;
+    --ink-1: #ffffff;
+    --ink-2: #c3c2b7;
+    --ink-muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255,255,255,0.10);
+    --seg-critical: #184f95;
+    --seg-high: #2a78d6;
+    --seg-medium: #6da7ec;
+    --seg-low: #b7d3f6;
+    --series-blue: #3987e5;
+    --good-text: #0ca30c;
+    --card: #1f1f1e;
+    --code-bg: #2a2a28;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--page);
+    color: var(--ink-1);
+    line-height: 1.65;
+    padding: 32px 16px 80px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header.rpt { border-bottom: 2px solid var(--baseline); padding-bottom: 20px; margin-bottom: 28px; }
+  header.rpt h1 { font-size: 26px; font-weight: 700; letter-spacing: .2px; }
+  header.rpt .sub { color: var(--ink-2); margin-top: 6px; font-size: 14px; }
+  header.rpt .meta { color: var(--ink-muted); font-size: 12.5px; margin-top: 10px; }
+  h2 { font-size: 20px; font-weight: 700; margin: 44px 0 14px; padding-top: 10px; }
+  h2 .no { color: var(--ink-muted); font-weight: 500; margin-right: 8px; }
+  h3 { font-size: 16px; font-weight: 650; margin: 22px 0 10px; }
+  p { margin: 8px 0; color: var(--ink-2); }
+  p strong, li strong { color: var(--ink-1); }
+  section.card-panel { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 22px 24px; }
+
+  /* stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 18px 0 6px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+  .tile .v { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tile .v.crit { color: var(--sev-critical); }
+  .tile .v.high { color: var(--sev-high); }
+  .tile .k { font-size: 12.5px; color: var(--ink-muted); margin-top: 2px; }
+
+  /* severity chart */
+  .chart { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 24px; }
+  .chart .title { font-size: 14.5px; font-weight: 650; }
+  .chart .subtitle { font-size: 12.5px; color: var(--ink-muted); margin-bottom: 16px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 12.5px; color: var(--ink-2); margin: 6px 0 14px; }
+  .legend .li { display: inline-flex; align-items: center; gap: 7px; }
+  .legend .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .bar-row { display: grid; grid-template-columns: 150px 1fr 46px; align-items: center; gap: 12px; margin: 14px 0; }
+  .bar-row .lbl { font-size: 13px; color: var(--ink-2); text-align: right; }
+  .bar-row .total { font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .stack { display: flex; height: 30px; border-radius: 4px; position: relative; }
+  .seg { position: relative; border-radius: 4px; min-width: 0; cursor: default; }
+  .seg + .seg { margin-left: 2px; }
+  .seg .cnt { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 650; color: #fff; font-variant-numeric: tabular-nums; }
+  .seg.s-low .cnt { color: var(--ink-1); }
+  .axis { display: flex; justify-content: space-between; border-top: 1px solid var(--baseline); margin: 10px 0 0 162px; padding-top: 4px; font-size: 11px; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+  .footnote { font-size: 12px; color: var(--ink-muted); margin-top: 14px; }
+
+  /* difficulty chart */
+  .dbar-row { display: grid; grid-template-columns: 170px 1fr 40px; align-items: center; gap: 12px; margin: 11px 0; }
+  .dbar-row .lbl { font-size: 13px; color: var(--ink-2); text-align: right; }
+  .dbar-row .val { font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .dbar-track { height: 18px; }
+  .dbar { height: 18px; border-radius: 0 4px 4px 0; background: var(--series-blue); min-width: 2px; }
+
+  /* badges */
+  .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 650; padding: 1px 8px 1px 6px; border-radius: 20px; color: #fff; white-space: nowrap; }
+  .badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; border: 1.5px solid rgba(255,255,255,.85); }
+  .b-critical { background: var(--sev-critical); }
+  .b-high { background: var(--sev-high); }
+  .b-medium { background: var(--sev-medium); color: #3d2c00; }
+  .b-medium::before { border-color: rgba(0,0,0,.45); }
+  .b-low { background: var(--sev-low); color: #fff; }
+  .b-info { background: transparent; border: 1px solid var(--baseline); color: var(--ink-muted); }
+  .b-info::before { display: none; }
+  .mod-tag { font-size: 11.5px; color: var(--ink-muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; white-space: nowrap; }
+
+  /* finding cards */
+  .finding { background: var(--card); border: 1px solid var(--border); border-left-width: 3px; border-radius: 8px; padding: 14px 18px; margin: 12px 0; }
+  .finding.f-critical { border-left-color: var(--sev-critical); }
+  .finding.f-high { border-left-color: var(--sev-high); }
+  .finding.f-medium { border-left-color: var(--sev-medium); }
+  .finding.f-low { border-left-color: var(--sev-low); }
+  .finding .head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .finding .fid { font-size: 12px; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+  .finding .ttl { font-weight: 650; font-size: 14.5px; flex: 1 1 100%; order: 5; margin-top: 2px; }
+  .finding .loc { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12px; background: var(--code-bg); border-radius: 4px; padding: 1px 7px; color: var(--ink-2); margin-top: 8px; display: inline-block; }
+  .finding dl { margin: 8px 0 0; font-size: 13.5px; }
+  .finding dt { color: var(--ink-muted); font-size: 12px; margin-top: 7px; font-weight: 600; }
+  .finding dd { color: var(--ink-2); margin: 1px 0 0; }
+  .finding dd code, p code, li code, td code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; background: var(--code-bg); border-radius: 4px; padding: 0 5px; color: var(--ink-1); }
+  .fixline { margin-top: 9px; padding-top: 8px; border-top: 1px dashed var(--grid); font-size: 13px; color: var(--ink-2); }
+  .fixline b { color: var(--good-text); font-weight: 650; }
+
+  /* compact tables */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  th { font-size: 12px; color: var(--ink-muted); font-weight: 600; background: var(--surface-1); }
+  tr:last-child td { border-bottom: none; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .hide { display: none !important; }
+
+  /* filter bar */
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 10px; }
+  .filters button { font: inherit; font-size: 12.5px; padding: 4px 14px; border-radius: 20px; border: 1px solid var(--baseline); background: var(--card); color: var(--ink-2); cursor: pointer; }
+  .filters button.on { background: var(--ink-1); color: var(--page); border-color: var(--ink-1); }
+
+  /* tooltip */
+  #tip { position: fixed; pointer-events: none; background: var(--ink-1); color: var(--page); font-size: 12.5px; padding: 6px 10px; border-radius: 6px; opacity: 0; transition: opacity .1s; z-index: 50; max-width: 320px; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+
+  .callout { border-left: 3px solid var(--series-blue); background: var(--surface-1); border-radius: 0 8px 8px 0; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: var(--ink-2); }
+  .callout.warn { border-left-color: var(--sev-high); }
+  .callout.crit { border-left-color: var(--sev-critical); }
+  ul.tight { margin: 6px 0 6px 20px; color: var(--ink-2); font-size: 13.5px; }
+  ul.tight li { margin: 4px 0; }
+  .ok-list li { margin: 3px 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } .bar-row { grid-template-columns: 104px 1fr 40px; } .axis { margin-left: 116px; } .dbar-row { grid-template-columns: 120px 1fr 36px; } }
+  footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--grid); color: var(--ink-muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="rpt">
+  <h1>Rockey-Dongle 项目安全审查与难度评估报告</h1>
+  <div class="sub">加密狗固件 / 主机侧接口 / 脚本语言虚拟机 / 密码学原语 —— 四路并行深度审查</div>
+  <div class="meta">生成日期 2026-09-02 · 审查对象 master@8555281 · 自研代码约 33,000 行(不含 TASSL 第三方库) · 测试代码约 5,600 行</div>
+</header>
+
+<!-- ============ 1. 摘要 ============ -->
+<h2><span class="no">01</span>执行摘要</h2>
+<section class="card-panel">
+  <p>本次审查采用<strong>四路并行深度代码审查</strong>,并对关键怀疑点做了<strong>可执行验证</strong>(详见第 08 节):密码学原语在本机(aarch64 GCC 11.4.0,与项目交叉编译器同版本)与 OpenSSL / Python cryptography 做了 1,500+ 组交叉比对;脚本编译器复刻语义做了可执行模拟;固件启动代码做了手工反汇编核算;RNG(用户指定重点)做了独立全链路分析。</p>
+  <p><strong>总体结论:</strong>项目算法实现本身质量很高——全部密码算法常量与运算在当前优化级别下经 RFC 标准向量验证<strong>数值全部正确</strong>;C++ 虚拟机的运行时防护(栈深/地址/对齐/除零/周期)相当完备。真实风险集中在四个层面:<strong>① 一处已实证的编译器敏感缺陷</strong>(strict-aliasing,-O2 下密码学静默失效);<strong>② 设备端 RNG 熵反馈逻辑错误</strong>(用户指定重点,三处同源);<strong>③ TS 编译器前端对 VM 物理约束零建模</strong>(负数错码、栈深、对齐);<strong>④ 主机工具两处内存破坏</strong>(--list 栈溢出、Base64 无界扫描)。</p>
+  <div class="tiles">
+    <div class="tile"><div class="v">51</div><div class="k">确认问题总数(去重后)</div></div>
+    <div class="tile"><div class="v crit">4</div><div class="k">Critical 致命级</div></div>
+    <div class="tile"><div class="v high">11</div><div class="k">High 高危级</div></div>
+    <div class="tile"><div class="v">33k</div><div class="k">自研代码行数 / 6 平台构建</div></div>
+  </div>
+</section>
+
+<div class="callout" style="margin-top:16px;border-left-color:var(--good-text)">
+  <strong>✅ 修复状态(2026-09-02 更新):</strong>19 项已修复并通过验证 —— 全部 4 项 Critical(C-01~C-04)、H-01/H-02(RNG)、H-05/H-06/H-07/H-11、M-02/M-03/M-04/M-05/M-07/M-08、L-15/L-24。关键验证:① C-02 修复后 <strong>-O1/-O2/-O3 全部通过 RFC 7748/8032 向量</strong>(修复前 -O2 失败);② H-07 负数立即数经 10,987 样本数值验证零失配;③ H-06 低阶点输入已返回 -EFAULT;④ C-04 base64 功能测试 4 项全过。未修复项(需更大改动/真机验证):H-03/H-04/H-08/H-09/H-10/M-01 等,详见 bug-analysis-context.md 第 7 节。
+</div>
+
+<!-- ============ 2. 总览图 ============ -->
+<h2><span class="no">02</span>问题分布总览</h2>
+<div class="chart">
+  <div class="title">各模块问题数量(按严重程度)</div>
+  <div class="subtitle">柱内数字为该严重级别的问题数;颜色深浅编码严重程度(深 = 更严重)。悬停查看明细。</div>
+  <div class="legend" id="sevLegend">
+    <span class="li"><span class="sw" style="background:var(--seg-critical)"></span>Critical 致命</span>
+    <span class="li"><span class="sw" style="background:var(--seg-high)"></span>High 高危</span>
+    <span class="li"><span class="sw" style="background:var(--seg-medium)"></span>Medium 中危</span>
+    <span class="li"><span class="sw" style="background:var(--seg-low)"></span>Low 低危</span>
+  </div>
+  <div id="sevChart"></div>
+  <div class="axis"><span>0</span><span>5</span><span>10</span><span>15</span><span>20</span></div>
+  <div class="footnote">主机构建的主机侧问题数最多(20),但其中 12 项为低危卫生问题;风险密度最高的是设备端(7 项中 5 项高危)与密码学模块(含 1 项已实证的致命项)。</div>
+</div>
+
+<!-- ============ 3. Critical ============ -->
+<h2><span class="no">03</span>致命级问题(Critical,4 项)</h2>
+
+<div class="finding f-critical" data-sev="critical">
+  <div class="head"><span class="badge b-critical">Critical</span><span class="fid">C-01</span><span class="mod-tag">脚本语言与VM · 设备端</span></div>
+  <div class="ttl">脚本摘要指令空指针写入 —— 匿名脚本可将设备打死</div>
+  <span class="loc">Interface/script.cc:856-869(VM_t::OpFuncDigest,SHA1/SM3/SHA256/SHA384/SHA512 共 5 处)</span>
+  <dl>
+    <dt>问题</dt><dd><code>OpCheckMM</code> 在 <code>addr+size &gt; 1024</code> 时只置 <code>zero_ = SIGSEGV</code> 并返回 nullptr,但 <code>zero_</code> 要到 <code>Execute()</code> 循环顶部才被检查——<strong>当前这条指令仍会继续执行</strong>,<code>md == nullptr</code> 被直接传入哈希函数并写入摘要。同文件其它 handler(如 kRandBytes、SM4/TDES)都做了 <code>if (p)</code> 检查,唯独 digest 五处全部遗漏。</dd>
+    <dt>触发条件</dt><dd>匿名脚本执行 <code>kExDigestSHA256</code> 且栈参数为 <code>[input_addr, size, 1000]</code>(1000+32 &gt; 1024)。<strong>kScriptAtomic 无需任何签名</strong>——MAC 密钥 = SM3(ScriptText 前 224 字节)可自行计算,即任何能向设备提交 1024 字节 InOutBuf 的人都能触发。</dd>
+    <dt>后果</dt><dd>MCU 上向地址 0x00000000 写 20~64 字节(向量区,写只读区 → BusFault/HardFault,<strong>设备挂死,拒绝服务</strong>);主机/模拟器构建上直接 NULL 写段错误。</dd>
+  </dl>
+  <div class="fixline"><b>修复</b>:五处 digest handler 增加 <code>if (md)</code> 检查(nullptr 时立即 return);更彻底的做法是把"检查 zero_ 后再执行"统一进指令分发层。</div>
+</div>
+
+<div class="finding f-critical" data-sev="critical">
+  <div class="head"><span class="badge b-critical">Critical</span><span class="fid">C-02</span><span class="mod-tag">密码学原语</span></div>
+  <div class="ttl">crypto.cc 严格别名违规 —— -O2 下 X25519/Ed25519 静默输出错误且非确定(已实证)</div>
+  <span class="loc">base/src/crypto.cc:24-151(cipher_memset / cipher_memcpy / cipher_memmove 及 146-151 行的宏重定向)</span>
+  <dl>
+    <dt>问题</dt><dd>自实现的 <code>cipher_memset/cipher_memcpy</code> 用 8 字节 <code>long</code> 类型左值读写调用方缓冲区,而调用方对象是 <code>int32_t fe[10]</code> 等不同类型——违反严格别名规则;<code>cipher_memcpy</code> 还声明 <code>__restrict</code>。146-151 行把文件内所有 <code>memset/memcpy/memmove</code> 宏重定向到这些实现,命中 <code>fe_copy</code>、<code>fe_0/fe_1</code>、<code>x25519_scalar_mult_generic</code> 的标量拷贝等核心路径。</dd>
+    <dt>实证结果</dt><dd>在本机 aarch64 GCC 11.4.0(与项目交叉编译器同版本):<code>-O1/-Os/-O3</code> 全部测试正确;<code>-O2</code> 下 <strong>X25519 对 RFC 7748 标准向量输出错误,且同一输入多次运行结果每次不同</strong>(读取未初始化栈内容);Ed25519 的 200/200 随机签名与参考实现全部不符、但 dongle 内部 sign/verify 自洽——<strong>可自验证却与一切标准实现不互操作,极难被发现</strong>。加 <code>-fno-strict-aliasing</code> 或删除宏重定向后 -O2 立即恢复正确,因果已隔离确认。</dd>
+    <dt>现状</dt><dd>当前构建 <code>Build/Main.mk:60-61</code> release 默认 -O1、MCU 用 -O1/-Os,<strong>碰巧安全</strong>;但 <code>Build/config/windows.conf:51-53</code> 已配置 -O2,且构建标志用 <code>?=</code> 赋值可被环境覆盖——换编译器版本或调整优化级别都会<strong>静默</strong>产出错误且非确定的共享密钥与签名。</dd>
+  </dl>
+  <div class="fixline"><b>修复</b>:删除 146-151 行宏重定向改用 libc 内存函数(编译器本就会生成正确的向量化代码);或给字访问类型加 <code>__attribute__((__may_alias__))</code>。CI 必须增加"以 -O2 编译并跑 RFC 8032/7748/8439 向量"的门禁。</div>
+</div>
+
+<div class="finding f-critical" data-sev="critical">
+  <div class="head"><span class="badge b-critical">Critical</span><span class="fid">C-03</span><span class="mod-tag">主机侧接口</span></div>
+  <div class="ttl">--list 命令栈缓冲区溢出约 1.4KB —— 可破坏返回地址</div>
+  <span class="loc">src/app/main.cc:652(char line[2048])· main.cc:674 → base/src/data.cc:89(rl_BASE64_Write 无边界检查)</span>
+  <dl>
+    <dt>问题</dt><dd><code>rl_BASE64_Write</code> 无任何边界检查,输出为 <code>ceil(n/3)*4+1</code> 字节。<code>kSizeTotal = count × 40</code>(DONGLE_INFO),count 上限 64 → 最多 2,592 字节数据 → 3,457 字符写入 2,048 字节缓冲。</dd>
+    <dt>触发条件</dt><dd>接入 ≥38 只加密狗后运行 <code>--list</code>(37 只时已溢出 25 字节)。代码本身支持 80 只(main.cc:651),工厂批量插狗场景完全可触发,且溢出后 main.cc:675 的 <code>sprintf</code> 继续越界写。</dd>
+  </dl>
+  <div class="fixline"><b>修复</b>:给 <code>rl_BASE64_Write</code> 加输出长度参数并在越界时返回错误;调用侧按最坏情况(count=64)分配缓冲。</div>
+</div>
+
+<div class="finding f-critical" data-sev="critical">
+  <div class="head"><span class="badge b-critical">Critical</span><span class="fid">C-04</span><span class="mod-tag">主机侧接口</span></div>
+  <div class="ttl">rl_BASE64_Read(…, -1) 不在 NUL 处终止 —— 越界读 + 无界写</div>
+  <span class="loc">base/src/data.cc:49-87 · 调用点 src/app/main.cc:252(Utilities 的 ReadLine lambda)</span>
+  <dl>
+    <dt>问题</dt><dd><code>zLEN&lt;0 时转 strlen</code> 的逻辑被注释掉;循环中 NUL 映射为 -2 被"忽略非法字符"逻辑继续扫描,<code>0 == zLEN--</code> 从 -1 递减永远不为 0,唯一出口是遇到 <code>'='</code>。</dd>
+    <dt>触发条件</dt><dd>在 <code>--reset/--factory/--lock/--dashboard</code> 的交互输入中粘贴<strong>不含 '=' padding 的 base64</strong>(或截断/错误数据):扫描器越过 128KB 的 <code>sline_</code> 继续扫描后续栈内存,并无界解码写入 128KB 栈缓冲(main.cc:231-232)。正常带 padding 的输入不触发——典型的畸形输入内存破坏。</dd>
+  </dl>
+  <div class="fixline"><b>修复</b>:恢复 <code>zLEN&lt;0 → strlen</code> 的转换;解码循环加入输出边界检查;对非法字符应报错而非忽略。</div>
+</div>
+
+<!-- ============ 4. High ============ -->
+<h2><span class="no">04</span>高危问题(High,11 项)</h2>
+
+<div class="finding f-high" data-sev="high">
+  <div class="head"><span class="badge b-high">High</span><span class="fid">H-01</span><span class="mod-tag">设备端RNG(用户重点)</span></div>
+  <div class="ttl">DRBG 熵反馈哈希"尾部余数"而非全部输出 —— 熵积累机制完全失效(三处同源)</div>
+  <span class="loc">Interface/rockey.cc:51(固件)· Interface/dongle.cc:95(主机)· Interface/emulator.cc:661(模拟器)</span>
+  <dl>
+    <dt>问题</dt><dd><code>SHA512(buffer, size, stream)</code> 中的 <code>size</code> 在此位置已被分块循环递减为<strong>尾部余量</strong>(原始长度 % 64)。请求长度为 64 的整数倍时(生成密钥/nonce 的最常见情况,如 <code>execute.cc:273</code> 的 1024 字节、Ed25519/X25519/uECC 全部密钥生成路径),反馈进 <code>entropy_local_</code> 的是 <code>SHA512("")</code> ——<strong>每次加同一个公开常数,零熵混入</strong>。</dd>
+    <dt>后果</dt><dd>状态演化 = 已知的计数器自增 + 公开常数 → 给定任一时刻状态,未来全部输出完全确定;DRBG 状态一旦暴露即<strong>无法自愈</strong>(本设计赖以恢复的 Fortuna 式反馈根本不工作)。详细分析见第 07 节 RNG 专项。</dd>
+  </dl>
+  <div class="fixline"><b>修复</b>:反馈改为对完整输出长度做 SHA512(保存原始长度变量),并周期性混入硬件随机。</div>
+</div>
+
+<div class="finding f-high" data-sev="high">
+  <div class="head"><span class="badge b-high">High</span><span class="fid">H-02</span><span class="mod-tag">设备端RNG(用户重点)</span></div>
+  <div class="ttl">RandBytes 超过 128 字节部分 = 陈旧缓冲区内容 ⊕ 密钥流</div>
+  <span class="loc">Interface/rockey.cc:32 · dongle.cc:75(HwARandBytes 只覆盖前 min(size,128) 字节)</span>
+  <dl>
+    <dt>问题</dt><dd>硬件随机只填前 128 字节;<code>size &gt; 128</code> 时,<code>[128, size)</code> 区间的"随机数" = 调用前缓冲区残留数据 ⊕ ChaCha20 密钥流。InOutBuf 里通常留着上一次脚本输入/响应(往往是主机可知内容)。</dd>
+    <dt>后果</dt><dd>该区间输出的熵与不可预测性完全退化为对 ChaCha 状态的保密性,并与残留数据产生可观察的相关性;1024 字节随机填充(如 app/main.cc 的 Main)命中此缺陷。</dd>
+  </dl>
+  <div class="fixline"><b>修复</b>:硬件随机按 128 字节块滚动注入整个输出区间,或先memset再异或。</div>
+</div>
+
+<div class="finding f-high" data-sev="high">
+  <div class="head"><span class="badge b-high">High</span><span class="fid">H-03</span><span class="mod-tag">MCU固件</span></div>
+  <div class="ttl">栈预算仅 2032 字节且无任何溢出保护(README 已知问题的定量化)</div>
+  <span class="loc">MCU/RockeyARM/start.s:6(SP=0x68000BF0)· linker.ld(无栈相关 ASSERT)</span>
+  <dl>
+    <dt>定量核算</dt><dd>栈底 0x68000BF0 到 InOutBuf 顶 0x68000400 共 <strong>0x7F0 = 2032 字节</strong>。Ed25519 Sign/Verify(curve25519.cc:2299/2335/2363/2369/2375)内部创建 240 字节 Sha512Ctx 临时对象,<code>internal_sha512_process</code> 再用 <code>uint64_t W[80]</code> = 640 字节(sha512.cc:230),加上调用链(Start 的 Dongle ~72B + Main 的 VM_t ~300B)总量逼近/超过预算——README 第 28 行承认的"轻微堆栈溢出覆盖 InOutBuf 底部"即此。</dd>
+    <dt>其它大栈帧</dt><dd><code>master.cc:41/196</code> 的 <code>WorldPublic world_public_</code> 为 <strong>1024 字节</strong>栈对象;script.cc:818-819(pubk 64B + cipher 256B)、secret.cc:151-153(260B + 256B)同样危险。</dd>
+    <dt>后果</dt><dd>溢出向下覆盖 InOutBuf 底部——那里是正在运行的 VM 数据与 RuntimeHeader 副本,造成输出损坏或逻辑错乱,且无检测手段。</dd>
+  </dl>
+  <div class="fixline"><b>修复</b>:大对象移入 ExtendBuf 复用区;链接脚本加栈余量断言;必要时开启 MPU guard page。</div>
+</div>
+
+<div class="finding f-high" data-sev="high">
+  <div class="head"><span class="badge b-high">High</span><span class="fid">H-04</span><span class="mod-tag">MCU固件</span></div>
+  <div class="ttl">start.s 从不跳转到 app_entry(依赖链接布局巧合),且不初始化 .bss</div>
+  <span class="loc">MCU/RockeyARM/start.s:20-29 · linker.ld:30</span>
+  <dl>
+    <dt>问题(手工反汇编验证)</dt><dd>0x40 起的实际指令序列:<code>LDR r6,[pc,#124]</code> → <code>LDM r0!,{r6,r7}</code>(用 loader 残留的无效 r0)→ <code>LDR r0,=app_entry</code> → 再次 <code>LDM r0!,{r6,r7}</code> → 顺序落入字面池与 .text。<strong>全程没有 BX/BLX</strong>。当前能工作仅因 app_entry 恰好是 .text 的第一个字节;新增/重排任何对象文件都会让固件从错误地址执行,且无断言保护。</dd>
+    <dt>附带</dt><dd>没有 .bss 清零代码,而 linker.ld:30 允许最多 16 字节 .bss——任何落入 .bss 的全局变量将以 RAM 随机值启动。</dd>
+  </dl>
+  <div class="fixline"><b>修复</b>:启动桩显式 <code>LDR r0,=app_entry; BX r0</code>;加 .bss 清零;链接脚本断言 app_entry == _world_start。</div>
+</div>
+
+<div class="finding f-high" data-sev="high">
+  <div class="head"><span class="badge b-high">High</span><span class="fid">H-05</span><span class="mod-tag">密码学原语</span></div>
+  <div class="ttl">CHACHAPOLY_Open 先解密后认证 + tag 比较非常量时间</div>
+  <span class="loc">Interface/chachapoly.cc:33-39</span>
+  <dl>
+    <dt>问题</dt><dd>(a) 解密在 tag 验证之前完成,认证失败(-EFAULT)时<strong>明文已写入输出缓冲</strong>且 <code>*size_</code> 已更新——调用方(VM 指令 kExChaChaPolyOpen,script.cc:1047)收到错误返回值后,VM 内存中仍留有未认证明文,后续指令可读取使用;(b) <code>memcmp</code> 首差异字节短路,对可精确测时的 USB 设备构成可测侧信道,理论上支持逐字节 tag 伪造。</dd>
+  </dl>
+  <div class="fixline"><b>修复</b>:先对密文计算 tag 并常量时间比较(crypto.cc:5385-5388 的 XOR 累加写法现成),通过后再解密;失败时清零缓冲并保持 *size_ 不变。</div>
+</div>
+
+<div class="finding f-high" data-sev="high">
+  <div class="head"><span class="badge b-high">High</span><span class="fid">H-06</span><span class="mod-tag">密码学原语</span></div>
+  <div class="ttl">X25519 不检查全零输出 —— 低阶点/小群输入直达密钥派生链</div>
+  <span class="loc">base/src/crypto.cc:4325-4372/5449-5453 · Interface/curve25519.cc:2246-2293 · 使用点 script.cc:1175-1185、execute.cc:368</span>
+  <dl>
+    <dt>问题</dt><dd>RFC 7748 §6.1 明确要求接收方检查计算结果是否全零,两条实现路径均未检查;另 <code>fe_frombytes</code> 忽略输入最高位(接受非规范 u 坐标)。</dd>
+    <dt>后果</dt><dd>恶意对端提交 Curve25519 已知低阶点可使共享密钥恒为全零或落在小子群内、完全可预测,进而推导下游派生密钥(PREV_MASTER_SECRET 链,execute.cc:368),或通过多次试探缩小本方私钥模小群因子。</dd>
+  </dl>
+  <div class="fixline"><b>修复</b>:在 X25519 出口对 out 做常量时间全零检查并返回错误;两侧实现 + ComputeSecretCurve25519 入口都加。</div>
+</div>
+
+<div class="finding f-high" data-sev="high">
+  <div class="head"><span class="badge b-high">High</span><span class="fid">H-07</span><span class="mod-tag">脚本编译器</span></div>
+  <div class="ttl">负数常量立即数编码错误 —— 静默生成错误代码(可执行验证)</div>
+  <span class="loc">Web/Script/lib/grammar.ts:749-757(ConstExpr.Statement 负数分支)</span>
+  <dl>
+    <dt>问题</dt><dd>对 <code>value ∈ [-0x100000, -0x1001]</code> 且低 12 位非零的负数,编码把本应<strong>减</strong>去的低位做成了<strong>加</strong>法。实测(复刻编译器 + VM 语义模拟):<code>-4097 → -4095</code>、<code>-5000 → -3192</code>、<code>-8191 → -1</code>、<code>-0xFFFFF → -1040385</code>。正数路径与边界值正确,仅该区间出错。</dd>
+    <dt>后果</dt><dd>无任何编译告警,脚本正常编译运行但结果错误;若该值用作地址/长度,连带产生越权内存访问判断错误。</dd>
+  </dl>
+  <div class="fixline"><b>修复</b>:低 12 位改用减法编码(或把 imm 编为 M、加 <code>0x1000-L</code>);补一组负数边界单元测试。</div>
+</div>
+
+<div class="finding f-high" data-sev="high">
+  <div class="head"><span class="badge b-high">High</span><span class="fid">H-08</span><span class="mod-tag">脚本编译器</span></div>
+  <div class="ttl">编译器完全不建模操作数栈深度(opstk = 16)—— 可生成必然 SIGSEGV 的代码</div>
+  <span class="loc">Web/Script/lib/grammar.ts:820-834(CallExpr.Statement)及全部 codegen 路径</span>
+  <dl>
+    <dt>问题</dt><dd>README 明言 opstk 只有 16 个字,但 TS 编译器没有任何栈深度跟踪,唯一检查是 <code>assert(args.length &lt; 16)</code>。实测:4 层嵌套的 5 参调用总代码仅 23 个半字(远小于 100 上限,编译通过),运行期最大栈深 18 &gt; 16 → SIGSEGV,错误路径 <code>memset(data_, 0, kSizeData)</code> <strong>清空全部输入输出数据</strong>。</dd>
+    <dt>定性</dt><dd>VM 有运行时防护所以不是内存破坏,但属于"编译通过、必然运行失败、失败模式带数据清零"的编译器缺陷。</dd>
+  </dl>
+  <div class="fixline"><b>修复</b>:为每条语句/表达式做静态栈深计算,超限在编译期报错。</div>
+</div>
+
+<div class="finding f-high" data-sev="high">
+  <div class="head"><span class="badge b-high">High</span><span class="fid">H-09</span><span class="mod-tag">模拟器</span></div>
+  <div class="ttl">密钥文件写入失败仍提交状态 —— 私钥槽被静默置为"已写入全零"</div>
+  <span class="loc">Interface/emulator.cc:524-548(OpWriteSecretFile)</span>
+  <dl>
+    <dt>问题</dt><dd>无论 callback 是否失败,第 546 行 <code>EncryptBuffer</code> 无条件执行;空文件分支中 <code>header.empty_file_ = 0</code> 先于 callback。触发:<code>WriteDataFile</code> 传入越界 offset/size(callback 返回 -ERANGE)或 <code>GenerateRSA</code> 失败——错误码虽返回,但文件已从"未写入"变为"已写入 32/256 字节合法加密的全零内容"。</dd>
+    <dt>后果</dt><dd>后续 ReadDataFile <strong>成功返回全零而非报错</strong>,"首次写入"状态永久丢失;对密钥文件意味着私钥槽位被静默清空。</dd>
+  </dl>
+  <div class="fixline"><b>修复</b>:callback 失败时回滚状态(不 EncryptBuffer、不落 empty_file_ = 0),直接向上传递错误。</div>
+</div>
+
+<div class="finding f-high" data-sev="high">
+  <div class="head"><span class="badge b-high">High</span><span class="fid">H-10</span><span class="mod-tag">模拟器</span></div>
+  <div class="ttl">模拟器打开失败即静默重建并覆盖狗镜像 —— 数据不可逆丢失</div>
+  <span class="loc">src/app/main.cc:646-647 · main.cc:810(Write 无条件执行,"wb" 截断重写)</span>
+  <dl>
+    <dt>问题</dt><dd><code>if (rockey.Open(...) &lt; 0) rockey.Create(...)</code> 对任何失败(文件损坏、SHA 不符、主密钥/口令输错 -EACCES)都落入 Create;执行结束后无论成败都以 "wb" 重写原文件。</dd>
+    <dt>后果</dt><dd><strong>口令敲错一次 → 原镜像内全部密钥文件被新空狗覆盖</strong>;脚本执行失败时对已部分修改的状态也会落盘。</dd>
+  </dl>
+  <div class="fixline"><b>修复</b>:区分"文件不存在"与"打开失败";打开失败立即退出不落盘;写回前做备份。</div>
+</div>
+
+<div class="finding f-high" data-sev="high">
+  <div class="head"><span class="badge b-high">High</span><span class="fid">H-11</span><span class="mod-tag">MCU固件</span></div>
+  <div class="ttl">elf2bin.cjs 静默丢弃除第一个 PT_LOAD 外的所有段</div>
+  <span class="loc">MCU/RockeyARM/elf2bin.cjs:68-84(phnum 校验整段被注释)· 86-95(只取 phdr[0])</span>
+  <dl>
+    <dt>问题</dt><dd>链接脚本产生多个加载段(.text@0、.data@0x68000BF0、g_FEI@0x68001400),.bin 只从 phdr[0] 生成,后续段内容不进镜像也无告警。当前靠 linker.ld 的空段 ASSERT 兜住 .data/.rodata,但 g_FEI 段没有任何断言——若未来向 <code>.ARM.__AT_0x68001400</code> 放数据将被静默丢弃,固件行为错误且无法从构建输出发现。</dd>
+  </dl>
+  <div class="fixline"><b>修复</b>:恢复 phnum 校验;对每个 PT_LOAD 输出诊断;g_FEI 段加非空即报错的构建检查。</div>
+</div>
+
+<!-- ============ 5. Medium ============ -->
+<h2><span class="no">05</span>中危问题(Medium,12 项)</h2>
+<table id="mediumTable">
+  <thead><tr><th style="width:56px">编号</th><th style="width:120px">模块</th><th>问题与位置</th><th style="width:44%">后果 / 修复</th></tr></thead>
+  <tbody>
+    <tr><td class="num">M-01</td><td>密码学</td><td>Interface 侧 Ed25519 标量乘使用秘密依赖分支 —— <code>curve25519.cc:2192-2213</code>(ge_scalarmult 逐位 if (bit));被 Sign(nonce)与 ComputePubkey(私钥)使用;crypto.cc:4176 有常量时间版本未用</td><td>实测耗时均衡,但控制流逐位依赖秘密,且 <code>if (!init)</code> 泄露标量最高置位位位置;Ed25519 nonce 任何泄露都可经格攻击恢复私钥 / 改用 crypto.cc 的常量时间版本</td></tr>
+    <tr><td class="num">M-02</td><td>密码学</td><td>私钥材料清零被编译器死存储消除(实证:-O2 对象文件 memset 调用数 = 0)—— <code>curve25519.cc:2292</code>(clamped X25519 私钥标量)、<code>dongle.h:66-71</code>(HashBase::Clear 用于含私钥的 SHA-512 上下文)</td><td>私钥与中间状态残留栈上 / 改用 crypto.cc:7-16 的 cipher_cleanse 或 volatile 指针</td></tr>
+    <tr><td class="num">M-03</td><td>脚本编译器</td><td>前导零十进制数按八进制截断 —— <code>tokenize.ts:243-251</code>;DFA 模拟确认 <code>"09"</code> 整体匹配 NUM,<code>parseInt("09",8)</code> = 0 不报错</td><td><code>09</code>→0、<code>018</code>→1 / 含 8/9 的前导零数字应抛 RangeError</td></tr>
+    <tr><td class="num">M-04</td><td>脚本编译器</td><td>内存读写内建函数不检查地址对齐 —— <code>grammar.ts:671-685/711-729</code> 只查常量地址范围;VM 的 LoadMM/StoreMM(script.h:63-70)要求 addr % sizeof(T) == 0 否则 SIGSEGV</td><td><code>kLoadI32(257);</code> 编译零告警、运行必错并清空数据区 / 编译期校验对齐</td></tr>
+    <tr><td class="num">M-05</td><td>脚本编译器</td><td><code>public</code> 尺寸可超过 256 导致输出区与输入区重叠 —— <code>grammar.ts:1266-1271</code> 只查 0..1024;<code>1723</code> 强制输入区 ≥256</td><td><code>public 300;</code> + <code>@280[4]: out;</code> 输出窗口落入输入区,收尾 memset 也会破坏输入 / AC_PUBLIC_SIZE_X 检查 ≤ 256</td></tr>
+    <tr><td class="num">M-06</td><td>脚本VM</td><td><code>Exit(非0)</code> 被解释为致命错误 —— <code>script.cc:1390-1396</code>(zero_ = argv[0])与 <code>1594-1599</code>(非零 zero_ 即 memset 清空 data_)</td><td>正常返回码语义的 <code>Exit(1)</code> 会清空全部输出并打错误标志 / 分离 exit code 与错误码通道</td></tr>
+    <tr><td class="num">M-07</td><td>主机侧</td><td>主机构建 <code>Dongle::GetPINState</code> 恒返回失败 —— <code>dongle.cc:132</code> 实参是逗号表达式,求值为常量 DONGLE_FAILED,没有调用任何 API</td><td>execute.cc:92-99 依赖它完成"管理员已验证 PIN"的权限提升,该路径永远提前失败 / 删掉字符串字面量,改为真实调用</td></tr>
+    <tr><td class="num">M-08</td><td>主机侧</td><td><code>ComputeSecretSecp256k1</code> 返回值约定反转 —— <code>curves.cc:510</code> 直接返回 uECC 布尔(成功=1),全项目约定 0=成功</td><td>脚本对非法公钥执行 ECDH 按惯例判成功,<strong>ECDH 失败被静默接受</strong> / 改为 <code>? 0 : -EFAULT</code>(同文件 :431 已有正确写法)</td></tr>
+    <tr><td class="num">M-09</td><td>主机侧/设备</td><td>主密钥派生值残留栈内存未清零 —— <code>emulator.cc:209-241</code>(secret[256] 非 SecretBuffer,三个错误路径不清零)、<code>rockey.cc:224/240</code>(ECCSM2_KEY_PAIR)、<code>:326-330</code>(RSA_PRIVATE_KEY)、emulator.cc 多处 BN_free 未用 BN_clear_free</td><td>活密钥/私钥材料残留在栈上 / 统一改用带清零析构的 SecretBuffer 与 BN_clear_free</td></tr>
+    <tr><td class="num">M-10</td><td>主机侧</td><td>管理员 PIN 泄露到日志 —— <code>main.cc:447-449</code>(启动逐条打印全部 argv,含 PIN)、<code>main.cc:210-212</code>(锁定流程把随机新 PIN 以 warning 级打印 3 遍)</td><td>与 main.cc:369-373 注释声明的"彻底忘记管理员 PIN"直接矛盾——锁定后仍可从日志恢复管理员权限 / argv 脱敏,新 PIN 不入日志</td></tr>
+    <tr><td class="num">M-11</td><td>设备端</td><td>RockeyTrustExecutePrepare 先写缓冲后校验指针 —— <code>execute.cc:84-86</code> 先 memcpy 256 字节到 ExtendBuf+512,再校验 <code>vm.data_/vm.buffer_</code></td><td>校验失败时数据已写入可能不属于 vm.buffer_ 的内存(当前调用点参数一致所以无害)/ 把指针校验移到写入之前</td></tr>
+    <tr><td class="num">M-12</td><td>设备端RNG</td><td>设备端忽略 TRNG 失败且启动后无重播种 —— <code>rockey.cc:14/32</code> 两处 HwARandBytes 不检查返回值(dongle.cc:75 主机版反而检查了)</td><td>get_random 失败时 entropy_local_ = 0 ⊕ 编译期常数 → 同批次固件设备输出完全一致 / 检查返回值并重试,周期性重播种(详见第 07 节)</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 6. Low ============ -->
+<h2><span class="no">06</span>低危问题(Low,24 项)</h2>
+<table id="lowTable">
+  <thead><tr><th style="width:56px">编号</th><th style="width:110px">模块</th><th>问题</th><th style="width:40%">位置 / 说明</th></tr></thead>
+  <tbody>
+    <tr><td class="num">L-01</td><td>脚本编译器</td><td>移位量 ≥32(或负数)静默截断为 &amp;0x1f,无诊断</td><td><code>grammar.ts:903-914/1481-1518</code>;<code>x &lt;&lt; 32</code> 等于不移位,与 VM 行为一致但零告警</td></tr>
+    <tr><td class="num">L-02</td><td>脚本编译器</td><td>逻辑运算结果值不对称、不符 C 语义</td><td><code>grammar.ts:1101/1019/986</code>;<code>5||7</code>→1 而 <code>5&amp;&amp;7</code>→7,三者互相不一致</td></tr>
+    <tr><td class="num">L-03</td><td>脚本编译器</td><td>WASM 解析器栈固定 256 层,深嵌套报错信息误导</td><td><code>Web/Script/main.cc:17-20</code>;yyNextState 不处理 EXTEND_STACK(-2),约 250 层以上嵌套得到 "Invalid Grammar.state -2"</td></tr>
+    <tr><td class="num">L-04</td><td>主机侧</td><td>SM2Cipher_TextToASN1 导出 API 无输出长度参数</td><td><code>dongle.cc:33-66 / emulator.cc:595-610</code>;接近 1024 的输入 DER 输出可超 1024,树内调用点靠上游检查恰好安全,外部调用即溢出</td></tr>
+    <tr><td class="num">L-05</td><td>脚本VM</td><td>CreateDataFile 接受负尺寸</td><td><code>script.cc:160-167</code> 未检查 argv[1] 为负,<code>rockey.cc:120</code> 把负 int 转巨大无符号传给设备</td></tr>
+    <tr><td class="num">L-06</td><td>主机侧</td><td>读取失败后仍对未初始化缓冲计算 SHA256</td><td><code>main.cc:383-386</code>;dashboard[8192] 在 ReadDataFile/ReadLine 失败后无条件哈希(结果被 result!=0 拦截)</td></tr>
+    <tr><td class="num">L-07</td><td>主机侧</td><td>Enum 未钳制 SDK 返回数量</td><td><code>dongle.cc:789-794</code> 信任 Dongle_Enum 填写的 count 并按它写 info[i];main.cc:659 的 clamp 发生在潜在越界写之后</td></tr>
+    <tr><td class="num">L-08</td><td>脚本VM</td><td>TDES 长度校验与块大小不一致</td><td><code>script.cc:997</code> 要求 size%16==0,而 TDES 块是 8 字节(dongle.cc:739 只要求 %8);合法 8 字节倍数被拒</td></tr>
+    <tr><td class="num">L-09</td><td>密码学</td><td>ScopeRNG 全局指针竞态</td><td><code>curves.cc:27-30</code> 直接写全局 g_rng_function.dongle_;多线程并发调用曲线接口会互相清空/覆盖(当前宿主单线程,潜伏)</td></tr>
+    <tr><td class="num">L-10</td><td>Web/PKI</td><td>PKI 初始化用未初始化内存做种子</td><td><code>pki.cc:32-38</code>;/dev/random 打开失败或 fread 短读时 buffer[128] 未初始化即 RAND_seed</td></tr>
+    <tr><td class="num">L-11</td><td>模拟器</td><td>模拟器不落实文件权限参数(与硬件语义背离)</td><td><code>emulator.cc:761-770/822-848/994-1004</code>;DongleHandle 全程不检查 permission_,依赖模拟器做安全测试会得出偏乐观结论</td></tr>
+    <tr><td class="num">L-12</td><td>模拟器</td><td>狗镜像默认主密钥硬编码弱口令</td><td><code>main.cc:628</code>;<code>"1234567812345678"</code>,未显式传参即用弱口令加密落盘</td></tr>
+    <tr><td class="num">L-13</td><td>主机侧</td><td>READ_MASTER_SECRET 失败仍覆写输出缓冲</td><td><code>master.cc:281-307</code>;error++ 后继续 SHA512 并写入 bytes_,输出被污染后才返回 -EFAULT;另 :281 打印派生输入首字节</td></tr>
+    <tr><td class="num">L-14</td><td>主机侧</td><td>READ_MASTER_SECRET 错误路径不清零中间缓冲</td><td><code>secret.cc:137-141</code>;size 不匹配时 ENCRYPT_MASTER_SECRET 未 memset</td></tr>
+    <tr><td class="num">L-15</td><td>主机侧</td><td>isxdigit 以可能为负的 char 入参(UB)</td><td><code>main.cc:705</code>;传入 ≥0x80 字节时未定义行为,应 cast 到 unsigned char</td></tr>
+    <tr><td class="num">L-16</td><td>模拟器</td><td>DONGLE_VERIFY 失败 abort 整个宿主进程</td><td><code>emulator.cc:536/540</code> + dongle.h:454-459;构造良好的畸形镜像(需主密钥)可触发 DoS;Load 未校验 empty_file_ 取值可走到 abort</td></tr>
+    <tr><td class="num">L-17</td><td>主机侧</td><td>rand() 未播种且 RAND_bytes 返回值未检查</td><td><code>main.cc:404</code></td></tr>
+    <tr><td class="num">L-18</td><td>密码学</td><td>Sha256Ctx::Update 的 size_t→int 截断</td><td><code>sha256.cc:235</code>;输入超 2GB 时 len 为负、数据被静默跳过;rlCryptoSha*CtxUpdate 导出接口同样以 int 为参</td></tr>
+    <tr><td class="num">L-19</td><td>密码学</td><td>ChaCha20 计数器 32 位回绕无检测</td><td><code>crypto.cc:928/949</code>;2^32 块(256GiB)后同 nonce 密钥流重现;当前 ≤1024 字文用法不可达</td></tr>
+    <tr><td class="num">L-20</td><td>密码学</td><td>Ed25519 验证接受非规范公钥编码、无 cofactor 处理</td><td><code>crypto.cc:5365 / curve25519.cc:2325</code>;ref10 原版行为,不接受小群点,属已知设计取舍</td></tr>
+    <tr><td class="num">L-21</td><td>密码学</td><td>rlCryptoEd25519PubkeyEx 不做 clamping</td><td><code>crypto.cc:5503-5522</code>;clamping 在 #if 0 中,调用方必须自己保证已 clamp,建议加断言</td></tr>
+    <tr><td class="num">L-22</td><td>密码学</td><td>ge_scalarmult 首次使用读取未初始化成员 T</td><td><code>curve25519.cc:2206</code>;dummy 分支 ge_add(&amp;T,&amp;T,&amp;A) 读未初始化外部 buffer,UB,MSan 会报</td></tr>
+    <tr><td class="num">L-23</td><td>密码学</td><td>rlCryptoRandBytes 的全局熵池无播种路径</td><td><code>crypto.cc:5477-5500</code>;global_entropy 静态零初始化,rlCryptoSeedBytes 无生产调用者;若启用首次输出完全可预测</td></tr>
+    <tr><td class="num">L-24</td><td>基础库</td><td>日志颜色复位码被覆盖</td><td><code>log.cc:221-222</code>;sprintf(p,efmt) 返回值被丢弃,*p++='\n' 覆写 efmt 首字节,终端颜色泄漏到后续输出</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 7. RNG 专项 ============ -->
+<h2><span class="no">07</span>设备端随机数发生器专项分析(用户指定重点)</h2>
+<section class="card-panel">
+  <p><strong>结构</strong>:启动时 <code>entropy_local_[16]</code>(64 字节)← 硬件 TRNG;之后每次 <code>RandBytes</code> 以 ChaCha20 计数器模式出流(<code>rlCryptoChaCha20Block</code> 为纯函数,不自增计数器),并用 SHA512 输出反馈更新状态。<code>InitializeEntropyLocal</code>(secret.cc:99-106)混入编译期私有常数,构造函数再经 <code>SeedBytes</code> 混入狗信息。</p>
+
+  <h3>发现汇总(4 项,含 2 高危)</h3>
+  <ul class="tight">
+    <li><span class="badge b-high">High</span> <strong>RNG-1 = H-01</strong>:熵反馈用循环消耗后的余数 size,64 倍数长度时反馈 SHA512("") 公开常数——<strong>熵积累机制整体失效</strong>(rockey.cc:51 / dongle.cc:95 / emulator.cc:661 三处同源,系复制粘贴扩散)。</li>
+    <li><span class="badge b-high">High</span> <strong>RNG-2 = H-02</strong>:超过 128 字节部分 = 陈旧缓冲区 ⊕ 密钥流(rockey.cc:32),输出与 InOutBuf 残留数据产生可观察相关性。</li>
+    <li><span class="badge b-medium">Medium</span> <strong>RNG-3 = M-12</strong>:两处 HwARandBytes 调用不检查返回值;TRNG 失败时 <code>entropy_local_</code> = 0 ⊕ 编译期常数 → <strong>同批次固件的设备输出完全一致</strong>;且启动后从不重播种,叠加 README 已承认的 Ed25519 栈溢出(可能写坏内存),DRBG 状态一旦受损无法自愈。</li>
+    <li><span class="badge b-low">Low</span> <strong>RNG-4</strong>:计数器仅递增 word[15],32 位回绕后密钥流重复(2^32 块,设备生命周期内实际达不到);同状态内相邻块 nonce 呈 +1 递推(ChaCha 本身安全,仅提示)。</li>
+  </ul>
+
+  <div class="callout crit">
+    <strong>核心判断:</strong>该 DRBG 的不可预测性<strong>完全依赖启动时那 64 字节硬件随机数</strong>——因为反馈失效(RNG-1)、无重播种(RNG-3)、超 128 字节无硬件熵(RNG-2),状态演化对知道初始状态的攻击者是确定性已知的。而项目全部密钥生成(Ed25519/X25519/uECC 密钥对、RSA 会话材料、随机填充)都经过这条路径。
+  </div>
+
+  <h3>修复建议(按优先级)</h3>
+  <ul class="tight">
+    <li><strong>P0</strong>:<code>SHA512(buffer, size, stream)</code> 改用保存的原始长度;三处同源一并修复。</li>
+    <li><strong>P0</strong>:<code>size &gt; 128</code> 时硬件随机按 128 字节块滚动注入(或先清零缓冲);检查 get_random 返回值,失败重试并混入 tick 计数器作为最低保障。</li>
+    <li><strong>P1</strong>:每 N 次调用或每分钟强制重播种(把 HwARandBytes 直接混入 entropy_local_,经 SHA512 而非加法);可参照 Fortuna 的多池结构。</li>
+    <li><strong>P1</strong>:修复 Ed25519 栈溢出(H-03),消除状态被覆写的物理通道。</li>
+  </ul>
+</section>
+
+<!-- ============ 8. 方法论 ============ -->
+<h2><span class="no">08</span>审查方法与可信度</h2>
+<section class="card-panel">
+  <div class="grid2">
+    <div>
+      <h3>四路并行审查</h3>
+      <ul class="tight">
+        <li><strong>MCU 固件与设备侧</strong>:固件内存映射定量核算、启动代码手工反汇编、链接布局与调用链栈预算核算。</li>
+        <li><strong>主机侧接口与密钥管理</strong>:全部指定文件通读,交叉验证依赖实现(dongle.h、crypto.cc、micro-ecc)。</li>
+        <li><strong>脚本语言</strong>:解码词法 DFA 表、复刻编译器代码生成与 VM 语义做<strong>可执行模拟验证</strong>(非纯目测)。</li>
+        <li><strong>密码学原语</strong>:提取独立测试程序,在本机(aarch64 GCC 11.4.0,与项目交叉编译器同版本)交叉验证。</li>
+      </ul>
+    </div>
+    <div>
+      <h3>可执行验证规模</h3>
+      <ul class="tight">
+        <li>SHA 家族:<strong>576 组</strong>多段用例(含 63/64/65 等边界切分)vs hashlib</li>
+        <li>ChaCha20-Poly1305:RFC 8439 向量 + <strong>419 组</strong>随机/分段 vs cryptography</li>
+        <li>Ed25519:RFC 8032 向量 + <strong>208 组</strong>随机签名 vs 参考实现</li>
+        <li>X25519:RFC 7748 <strong>全部向量</strong> + 随机配对</li>
+        <li>strict-aliasing 缺陷:-O1/-Os/-O2/-O3 对比 + <code>-fno-strict-aliasing</code> 因果隔离(见 C-02)</li>
+        <li>私钥清零消除:同版 GCC 编译相同模式,对象文件 memset 调用数 = 0(见 M-02)</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>已排查、确认无问题的项</h3>
+  <ul class="tight ok-list">
+    <li><strong>算法数值正确性</strong>(-O1):fe_*/sc_muladd/sc_reduce、SHA1/256/384/512 填充与长度字(含 64 位进位)、ChaCha20-Poly1305 全套(Poly1305 r clamp、padding 位、长度编码、counter 0 取 MAC key / 1 起加密)、Ed25519 签名结构(确定性 nonce、clamping、规范形检查、常量时间比较)、X25519 数学——全部与标准一致。</li>
+    <li><strong>micro-ecc 补丁</strong>:P-256/secp256k1/SM2 曲线常数、uECC_decompress 原地安全性逐一核算无误。</li>
+    <li><strong>C++ VM 运行时防护</strong>:栈深、地址范围、对齐、除零(含 INT_MIN/-1)、cycles、跳转边界(pc_ 为 uint8_t,越界被拦截)。</li>
+    <li><strong>scanner.cc(flex 移植)</strong>:epsclosure/mkeccl/expand_nxt_chk 与原版语义一致,操作数栈边界完整,realloc 失败路径正确挂回链表,无泄漏。</li>
+    <li><strong>其它</strong>:ExtendBuf 三段复用时序不重叠;SM2 加解密各缓冲边界;rlCryptoChaCha20Block 先复制状态再输出(secret.cc 的 union 原地用法安全);DONGLE_VERIFY/SecretBuffer 析构清零机制本身工作正常。</li>
+  </ul>
+</section>
+
+<!-- ============ 9. 难度评估 ============ -->
+<h2><span class="no">09</span>项目难度评估</h2>
+<div class="chart">
+  <div class="title">各维度难度评分(满分 5)</div>
+  <div class="subtitle">基于架构分析、构建系统、内存约束与代码规模的定量评估;条长编码分值。</div>
+  <div id="diffChart"></div>
+  <div class="footnote">评分依据见下方分析。总体评级:<strong>专家级(9/10)</strong>。</div>
+</div>
+
+<section class="card-panel" style="margin-top:14px">
+  <h3>维度分析</h3>
+  <ul class="tight">
+    <li><strong>密码学与安全工程(5.0)</strong>:自研/移植全套原语(RSA2048、SM2/SM4/SM3、P-256/secp256k1、Ed25519/X25519、ChaCha20-Poly1305、SHA 家族),涉及常量时间编程、DRBG 设计、密钥托管(EnTrust/GPG)、工厂锁定流程、每构建随机常数防重放。需要真正的密码学工程背景才能维护。</li>
+    <li><strong>嵌入式资源约束(5.0)</strong>:RAM 可用约 3KB;<strong>BSS ≤ 16 字节、rodata 必须为空(链接脚本断言)</strong>;栈预算 2032 字节;自写 libc;全部常量编码进指令流;入口混淆。这是极限资源下的密码学工程,容错空间以字节计。</li>
+    <li><strong>编译器/虚拟机自研(4.5)</strong>:flex 移植的 DFA 词法分析器(2,151 行)、LALR(1) 语法、字节码 VM,且 TS 与 C++ <strong>双实现必须语义一致</strong>;签名脚本体系(SignedCode-*.program)。</li>
+    <li><strong>跨平台构建工程(4.0)</strong>:自研 x4c 构建系统,6 套配置(arm-none-eabi / linux / windows / cygwin / aarch64-linux / wasm / wasmjs),同一份代码跑在 Cortex-M 固件、主机进程与浏览器 WASM 上。</li>
+    <li><strong>密钥管理流程工程(4.0)</strong>:mkey 目录记录的完整生命周期(GPG 托管、sec.bin 种子、K0-K3 初始化、EnTrust、factory-lock、SESSION-KEY 导出),操作规程与代码强耦合。</li>
+    <li><strong>测试与验证体系(2.5)</strong>:约 5,600 行测试(25519/aes/dongle/sha256/uECC)覆盖算法层,但编译器前端零防护(本次 H-07/H-08 即证据)、无 CI 向量门禁、-O2 组合未测(C-02 即证据)。</li>
+  </ul>
+  <div class="callout">
+    <strong>结论:</strong>这是一个<strong>跨密码学、嵌入式、编译器、全栈四个领域的专家级项目</strong>(约 33k 行自研代码),设计思路(每构建随机常数、空 rodata、签名脚本)显示出很强的安全工程功底。主要短板在<strong>验证体系</strong>:算法层验证充分,但编译器前端、优化级别组合、RNG 状态机缺乏系统性测试——本次 51 项发现中约三分之一与此直接相关。对维护者的要求:至少一名同时熟悉密码学实现细节与 ARM 裸机环境的资深工程师;上手成本估计 2-4 周(仅理解内存布局与密钥流程)。
+  </div>
+</section>
+
+<!-- ============ 10. 修复路线 ============ -->
+<h2><span class="no">10</span>修复优先级路线图</h2>
+<section class="card-panel">
+  <h3><span class="badge b-critical">P0</span> 立即修复(内存破坏 / 密码学静默失效 / 设备可打死)</h3>
+  <ul class="tight">
+    <li>C-01 digest 空指针(设备 DoS,匿名可达)、C-03/C-04 主机两处内存破坏</li>
+    <li>C-02 strict-aliasing:删宏重定向 + CI 加 -O2 向量门禁</li>
+    <li>H-01/H-02 RNG 熵反馈与 &gt;128B 覆盖(修复量小,密码学根因级)</li>
+    <li>H-07 负数立即数错码(一行级修复 + 边界测试)</li>
+  </ul>
+  <h3><span class="badge b-high">P1</span> 本迭代(高危,涉及数据不可逆丢失与认证语义)</h3>
+  <ul class="tight">
+    <li>H-03/H-04 固件栈预算与启动桩(加固 + 断言);H-05 CHACHAPOLY_Open 重写;H-06 X25519 全零检查;H-08 编译器栈深建模;H-09/H-10 模拟器两处数据损坏;H-11 elf2bin 段丢弃</li>
+    <li>M-01/M-02 密码学卫生(常量时间标量乘、不可消除清零)</li>
+  </ul>
+  <h3><span class="badge b-medium">P2</span> 后续迭代(中低危卫生问题)</h3>
+  <ul class="tight">
+    <li>M-03~M-12 按模块批量处理;L 系列择要(SM2Cipher API 加长度参数、ScopeRNG 加锁、模拟器权限落实等)</li>
+    <li>体系性改进:编译器静态检查(栈深/对齐/分区)、CI 优化级别矩阵、RNG 重播种机制、密钥材料统一 SecretBuffer</li>
+  </ul>
+</section>
+
+<footer>
+  本报告由 Claude Code 四路并行深度审查生成 · 所有 Critical/High 发现均经代码级定位与(可行的)可执行验证 · 行号基于 master@8555281 · 交互输入测试未在真实设备上执行(仅语义模拟),设备侧行为推断标注于对应条目
+</footer>
+
+</div>
+<div id="tip"></div>
+<script>
+(function () {
+  var sev = [
+    { key: 'critical', name: 'Critical' },
+    { key: 'high', name: 'High' },
+    { key: 'medium', name: 'Medium' },
+    { key: 'low', name: 'Low' }
+  ];
+  var data = [
+    { name: 'MCU固件/设备端', v: [0, 5, 2, 0] },
+    { name: '主机侧接口/模拟器', v: [2, 2, 4, 12] },
+    { name: '脚本语言与VM', v: [1, 2, 4, 5] },
+    { name: '密码学原语', v: [1, 2, 2, 7] }
+  ];
+  var MAX = 20;
+
+  /* severity stacked bars */
+  var chart = document.getElementById('sevChart');
+  data.forEach(function (row) {
+    var r = document.createElement('div'); r.className = 'bar-row';
+    var lbl = document.createElement('div'); lbl.className = 'lbl'; lbl.textContent = row.name;
+    var stack = document.createElement('div'); stack.className = 'stack';
+    row.v.forEach(function (n, i) {
+      if (n <= 0) return;
+      var seg = document.createElement('div');
+      seg.className = 'seg s-' + sev[i].key;
+      seg.style.flex = '0 0 ' + (n / MAX * 100) + '%';
+      seg.dataset.tip = row.name + ' · ' + sev[i].name + ':' + n + ' 项';
+      if (n / MAX * 100 > 6) {
+        var c = document.createElement('span'); c.className = 'cnt'; c.textContent = n; seg.appendChild(c);
+      }
+      stack.appendChild(seg);
+    });
+    var tot = document.createElement('div'); tot.className = 'total'; tot.textContent = row.v.reduce(function (a, b) { return a + b; }, 0);
+    r.appendChild(lbl); r.appendChild(stack); r.appendChild(tot);
+    chart.appendChild(r);
+  });
+
+  /* difficulty bars */
+  var diff = [
+    { name: '密码学与安全工程深度', score: 5.0 },
+    { name: '嵌入式资源约束', score: 5.0 },
+    { name: '编译器/虚拟机自研', score: 4.5 },
+    { name: '跨平台构建工程', score: 4.0 },
+    { name: '密钥管理流程工程', score: 4.0 },
+    { name: '测试与验证体系', score: 2.5 }
+  ];
+  var dc = document.getElementById('diffChart');
+  diff.forEach(function (d) {
+    var r = document.createElement('div'); r.className = 'dbar-row';
+    var lbl = document.createElement('div'); lbl.className = 'lbl'; lbl.textContent = d.name;
+    var track = document.createElement('div'); track.className = 'dbar-track';
+    var bar = document.createElement('div'); bar.className = 'dbar';
+    bar.style.width = (d.score / 5 * 100) + '%';
+    bar.dataset.tip = d.name + ':' + d.score + ' / 5';
+    track.appendChild(bar);
+    var val = document.createElement('div'); val.className = 'val'; val.textContent = d.score.toFixed(1);
+    r.appendChild(lbl); r.appendChild(track); r.appendChild(val);
+    dc.appendChild(r);
+  });
+
+  /* tooltip */
+  var tip = document.getElementById('tip');
+  document.addEventListener('mouseover', function (e) {
+    var t = e.target.closest('[data-tip]');
+    if (t) { tip.textContent = t.dataset.tip; tip.style.opacity = 1; }
+  });
+  document.addEventListener('mousemove', function (e) {
+    if (tip.style.opacity === '1') {
+      var x = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+      tip.style.left = x + 'px'; tip.style.top = (e.clientY + 16) + 'px';
+    }
+  });
+  document.addEventListener('mouseout', function (e) {
+    if (e.target.closest && e.target.closest('[data-tip]')) tip.style.opacity = 0;
+  });
+})();
+</script>
+</body>
+</html>

@@ -115,7 +115,7 @@ L-01 `grammar.ts:903/1481` 移位≥32 静默截断 · L-02 `grammar.ts:1101/101
 | M-02 | curve25519.cc X25519 私钥标量、dongle.h HashBase::Clear 改 volatile 逐字节清零(不可被 DSE 删除) | 语法检查通过 |
 | M-03 | tokenize.ts 前导零含 8/9 抛 RangeError | tsc 通过 |
 | M-04 | grammar.ts Memory Load/Store 常量地址编译期对齐校验(memoryAccessSize);顺带修正 Store 分支错误消息 LoadMemory→StoreMemory | tsc 通过 |
-| M-05 | grammar.ts AC_PUBLIC_SIZE_X 上界 1024→256 | tsc 通过 |
+| M-05 | ~~grammar.ts AC_PUBLIC_SIZE_X 上界 1024→256~~ **已回退(3ef001d,设计决策)**:public 上界恢复 0..1024。设计依据(代码注释):输入阶段布局 TEXT[256]+DATA[768],输出阶段整个 1024B 均可作输出,两阶段时序不重叠 | HelloWorld 实测通过 |
 | M-06 | Exit(非0) 与故障分离:VM_t 新增 `exit_` 成员,kExit 记 exit_ 不再置 zero_;收尾保留输出,返回 `(exit&0xFFFF)\|(1<<29)`(kResultExitFlag,故障仍是 bit30);main.cc/Web emulator 三处宿主对带标记结果不清输出、照常打印 | **实测:exit 65522 带输出返回 OK;模拟器测试套件 0 错误** |
 | M-07 | dongle.cc GetPINState 逗号表达式 → 诚实 `-ENOSYS` 存根(SDK 无该查询 API) | 语法检查通过 |
 | M-08 | curves.cc ComputeSecretSecp256k1 返回约定改 `? 0 : -EFAULT` | 语法检查通过 |
@@ -148,8 +148,32 @@ L-01 `grammar.ts:903/1481` 移位≥32 静默截断 · L-02 `grammar.ts:1101/101
 
 ### ⏳ 未修复(需要更大改动或真机验证)
 
-- H-03 栈预算重构(大对象移 ExtendBuf/链接断言/MPU)——设计级改动
-- H-04 start.s 启动桩重写(需真机验证启动)
+#### H-03 栈预算 —— 2026-09-03 精确核算完成(工具链 arm-none-eabi 10.3.1, .su + R_ARM_THM_CALL/JUMP24 重定位调用图, 见 /tmp/stack-analysis/*.sh|py)
+
+**豁免范围(用户确认)**:`OpExecute_*` 在调用栈末尾执行后程序立即退出(刻意封装);`OpManager_*` 为系统初始化设计,运行后设备身份变更,运行时无敏感信息。两者按"路径终点"豁免,但其被调函数在其他路径上仍需计入(不可整子树豁免——`Ed25519::Sign` 等同时被两者调用)。
+
+**稳态(脚本中段)真实违规 = 3 个指令家族,32 条路径,全部终于 `internal_sha512_process`(1056B)**:
+| 家族 | 最深路径 | 超出 | 路径 |
+|---|---|---|---|
+| OpSecp256k1 | 2444B | +412 | SignMessageSecp256k1(272)→uECC→RNG→RandBytes(104)→**Dongle::SHA512(256,含 Sha512Ctx 栈临时 240B)**→process(1056) |
+| OpFuncP256 | 2356B | +324 | GenerateKeyPairPrime256v1(264)→uECC_make_key→RNG→同上 SHA512 链 |
+| OpEd25519 | 2204B | +172 | Sign(592)→Sha512Ctx::Final→internal_sha512_final(32)→process(1056) |
+| OpEd25519(ge 路由) | 2128B | +96 | Sign(592)→ge_scalarmult_base(16)→ge_scalarmult(528)→ge_add(88)→fe_mul(392) |
+| Ed25519 Verify(ge 路由) | 2096B | +64 | Verify(568)→同上 ge 链 |
+
+**关键帧(Cortex-M0/Thumb-1, 8 寄存器导致 64bit 变量必然溢出)**:internal_sha512_process 1056(W[80]=640+溢出416) · Sign 592(Sha512Ctx 240 + 内联 sc_muladd ~192) · Verify 568(+rcopy/scopy/rcheck 96) · ge_scalarmult 528 · X25519 616 · fe_mul 392 · Start 376(Dongle+VM_t~292 内联) · Dongle::SHA512 256(Sha512Ctx 临时) · RSAPrivate(bits版) 568 · OpManager_VerifyWorldPublic 1216(WorldPublic 整结构在栈,豁免)。
+
+**修复方案(已实测原型验证)**:
+1. **P0 sha512.cc W[80]→W[16] 滚动窗口** —— ✅ **已实施并验证(2026-09-03)**:帧 **1056→360**,与原型一致;违规路径 **32→8**(Secp256k1 2444→1748✓、P256 2356→1660✓、Ed25519-sha512 2204→1508✓,剩余 8 条均为 Ed25519 ge 路由 2160B/超128,待方案 2/3)。验证:①aarch64 __Testing__25519__(RFC8032)/sha256/micro_ecc 全 0 错误;②foobar 模拟器 __Testing__dongle__ 端到端 0 错误;③直接向量 4808/4808(长度 0..600 一次性+8 种分段边界+SHA-384 抽查,对 Python hashlib 全一致)。注:process 代码 2512B(原型 914B 因假常量偏小,真 64bit 常量在 M0 需更多指令物化);.bin 恒 65520B(定长镜像,空闲随机填充)。W16 索引:i-2≡i+14, i-7≡i+9, i-15≡i+1, i-16≡i (mod 16)。
+2. **P0 curve25519.cc Helper 联合体死区放 Sha512Ctx** —— ✅ **已实施并验证(2026-09-03)**:union{q|qc+p1p1} 新增 `alignas(Sha512Ctx) uint8_t sha512_ctx_[sizeof(Sha512Ctx)]`(240B≤320B) + `Sha512Ctx& sha512_ctx()` 访问器(reinterpret_cast,与 ExtendBuf 静态转换同一惯用法);替换 ComputePubkey/Verify/Sign 共 5 处 `Sha512Ctx()` 栈临时(死区断言已逐一核实:ge_frombytes_vartime 仅用栈 fe 局部量,不触 q/qc/p1p1;哈希输出 az/nonce/hram 均在 Helper 偏移≥800,与 ctx(偏移 0)无别名)。帧:Sign **592→344**、Verify **568→368**、ComputePubkey **272→32**;static_assert(sizeof(Helper)≤1024) 通过。**全链重扫描:违规路径 8→0;稳态最大深度 1928B/预算 2032B(余量 104B,最深链 = Verify→ge_scalarmult→ge_add→ge_p1p1_to_p3→fe_mul)**。验证:aarch64 __Testing__25519__(RFC8032)/sha256 0 错误;foobar 模拟器 __Testing__dongle__/__Testing__25519__ 0 错误。
+3. **P1 sc_muladd/ge_frombytes_vartime 强制 noinline + Verify 免拷贝** —— ✅ **已实施并验证(2026-09-03,比原计划更简)**:关键洞察——sc_muladd 只在 Sign 末尾执行、ge_frombytes 只在 Verify 开头执行,与 ge 链**时序不重叠**,独立成帧即可,无需 Helper 工作区搬迁。改动:① `sc_muladd` + `__attribute__((noinline))`(独立帧实测 336B,Sign 344→**40**);② `ge_frombytes_vartime` + noinline(独立帧 344B,Verify 368→**224**);③ Verify 删除 rcopy/scopy(全程只读 signature,直接用 signature/signature+32)。**最终:违规 0,稳态最大深度 1784B/2032B,余量 248B**(最深链 Verify→ge_scalarmult→ge_add→ge_p1p1_to_p3→fe_mul)。验证:aarch64 25519/sha256 0 错误;foobar dongle/25519 0 错误。注:noinline 属性对 wasm(emscripten/clang)同样有效,但 wasm 目标本机未构建验证。
+4. 备选(余量不足时):ge_scalarmult 528B 疑含 `*R=A`/`A=*point` 结构拷贝的 160B 栈临时(×2)+inlined ge_p2_dbl t0,改 fe_copy×4 或逐成员赋值估计 -300;fe_mul 392 串行化(滚动进位,活跃值 20→6)估计 -200;Verify 的 rcopy/scopy 可直接用 signature±32 免拷贝 -64。
+5. 验证:__Testing__sha256__ + RFC 6234 向量 + __Testing__25519__(RFC 8032)+ make dongle 后重跑 /tmp/stack-analysis 全链扫描确认 0 违规。
+
+> 2026-09-03 备注:提交 `3ef001d`(Test HelloWorld Ok)在上下文记录之后做出,含两处实质变更:① **M-05 修复被有意回退**(见上表),public 上界恢复 1024;② `dongle.sc` DEC 正则 `[1-9][0-9]*` → `[1-9][0-9]*|0`,允许裸 `0` 字面量(此前是词法错误;tokenize.ts 的 parseInt("0",8)=0 已兼容,scanner 由 .sc 构建时生成,自洽)。其余均为 prettier 格式化,L-01/M-04 修复经核对完好。
+
+- H-03 栈预算重构——**2026-09-03 已解决:方案1(W16)+方案2(Helper ctx)+方案3(noinline×2+免拷贝)全部实施验证,违规路径 32→0,稳态最大栈深 1784B/2032B(余量 248B)。栈检查工具已入库:`Build/tools/stack-check/`(make stack-check,退出码 0/10 可接 CI;含豁免语义文档与历史参考值)。注:wasm 调用栈可认为很大,无需在意栈深,只需逻辑正确;栈约束仅存在于 dongle 固件**
+- H-04 ~~start.s 启动桩重写~~ **关闭(用户确认)**:真机无问题;ukey 环境 text 段不可读出,且 Cortex-M0(ARMv6-M,已从 .o 属性证实)无 BLX 寄存器指令,`ldr+blx` 本就不可执行——启动桩依赖 app_entry 恰为 .text 首字节是刻意的。start.s 现已重写(含 Vector 表 SP=0x68000BF0 + RandFill 字节模式)
 - H-08 编译器栈深静态建模(需要完整的 codegen 栈深计算框架)
 - M-01 Interface 侧换用常量时间标量乘(涉及两套实现的取舍)
 - L-02 逻辑运算结果值不对称(`5||7`→1 但 `5&&7`→7;改语义可能破坏既有脚本)

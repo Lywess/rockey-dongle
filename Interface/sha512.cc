@@ -226,8 +226,12 @@ struct SHA512_K {
 #endif /* PUT_UINT64_BE */
 
 static void internal_sha512_process(SHA512_CTX* ctx, const unsigned char data[128]) {
-  int i;
-  uint64_t temp1, temp2, W[80];
+  /**
+   *! Cortex-M0 栈预算: W[80](640B) 使本帧达 1056B, 是固件栈溢出的主因;
+   *! 改为 W[16] 滚动窗口后帧降至 360B(代码也缩小 ~1.9KB)。
+   *! 滚动索引映射: i-2 ≡ i+14, i-7 ≡ i+9, i-15 ≡ i+1, i-16 ≡ i (mod 16)
+   */
+  uint64_t temp1, temp2, W[16];
   uint64_t A, B, C, D, E, F, G, H;
 
 #define SHR(x, n) ((x) >> (n))
@@ -250,12 +254,8 @@ static void internal_sha512_process(SHA512_CTX* ctx, const unsigned char data[12
     (h) = temp1 + temp2;                                 \
   } while (0)
 
-  for (i = 0; i < 16; i++) {
+  for (int i = 0; i < 16; i++) {
     GET_UINT64_BE(W[i], data, i << 3);
-  }
-
-  for (; i < 80; i++) {
-    W[i] = S1(W[i - 2]) + W[i - 7] + S0(W[i - 15]) + W[i - 16];
   }
 
   A = ctx->state[0];
@@ -266,26 +266,30 @@ static void internal_sha512_process(SHA512_CTX* ctx, const unsigned char data[12
   F = ctx->state[5];
   G = ctx->state[6];
   H = ctx->state[7];
-  i = 0;
 
-  do {
-    P(A, B, C, D, E, F, G, H, W[i], K[i]);
-    i++;
-    P(H, A, B, C, D, E, F, G, W[i], K[i]);
-    i++;
-    P(G, H, A, B, C, D, E, F, W[i], K[i]);
-    i++;
-    P(F, G, H, A, B, C, D, E, W[i], K[i]);
-    i++;
-    P(E, F, G, H, A, B, C, D, W[i], K[i]);
-    i++;
-    P(D, E, F, G, H, A, B, C, W[i], K[i]);
-    i++;
-    P(C, D, E, F, G, H, A, B, W[i], K[i]);
-    i++;
-    P(B, C, D, E, F, G, H, A, W[i], K[i]);
-    i++;
-  } while (i < 80);
+  for (int i = 0; i < 80; i++) {
+    /* W[i] = S1(W[i-2]) + W[i-7] + S0(W[i-15]) + W[i-16], 滚动窗口 mod 16 */
+    uint64_t wi;
+    if (i < 16) {
+      wi = W[i];
+    } else {
+      wi = S1(W[(i + 14) & 15]) + W[(i + 9) & 15] + S0(W[(i + 1) & 15]) + W[i & 15];
+      W[i & 15] = wi;
+    }
+
+    P(A, B, C, D, E, F, G, H, wi, K[i]);
+
+    /* 轮转工作寄存器: (a..h) ← (h', a, b, c, d, e, f, g) */
+    uint64_t t = H;
+    H = G;
+    G = F;
+    F = E;
+    E = D;
+    D = C;
+    C = B;
+    B = A;
+    A = t;
+  }
 
   ctx->state[0] += A;
   ctx->state[1] += B;
