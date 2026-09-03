@@ -116,6 +116,12 @@ static void MASTER_SECRET_PROCESS(uint8_t ENCRYPT_MASTER_SECRET[256], Dongle* do
   uint8_t* p = ENCRYPT_MASTER_SECRET;
   InitializeCipherState(cipher);
   dongle->LocalChaos(cipher, 2);
+  /**
+   *! stream 与 cipher 同址(union 别名): 每段输出后 cipher 即为上一段
+   *! 密钥流, ++cipher[15] 推进的是链式派生状态, 不是标准 ChaCha20
+   *! CTR 计数器(标准 CTR 需独立输出缓冲)。本层仅为 RSA 之上的 XOR
+   *! 掩码, 链式派生即可接受; 修改此处时不要按标准 CTR 语义误读。
+   */
   for (int i = 0; i < 4; ++i) {
     ++cipher[15];
     rlCryptoChaCha20Block(cipher, stream);

@@ -211,6 +211,23 @@ L-01 `grammar.ts:903/1481` 移位≥32 静默截断 · L-02 `grammar.ts:1101/101
 - H-01/H-02/M-12 修复属实且正确,三平台收敛为共享 `Interface/TRNG.cc`。
 - **用户真机事实**:① get_random 在 <128B 长度实测不失败(64B 逐块注入有足够冗余);② Init+EnTrust+MASTER.SECRET 在物理隔离可信环境执行,主机 nonce 保密——每次上电交易 VM_t 构造时 `SeedBytes(InOutBuf, 1024)`(SHA512 正规混合)构成**按交易的可信宿主重播种通道**,覆盖 R2/R3 公开输出状态增量问题。
 - 结论:威胁模型内(可信 provisioning 环境 + TRNG 正常)**评级"强"**。
-- **R1 保留(用户决策 2026-09-03)**:TRNG 只在初始化时生成密钥(此时有外部高熵 nonce 输入);真实场景大部分使用 Ed25519 签名(确定性 nonce,不依赖 TRNG);RandBytes 在降级为 PRNG 时返回 -EFAULT。已按此决策在代码中记录警告:**TRNG.cc RandBytes 注释**(降级语义、Ed25519 豁免、非 Ed25519 签名/密钥生成调用方必须检查返回值)与 **rockey.cc 构造函数注释**(3 次重试全失败不中止的理由)。新增 RandBytes 调用点必须保持检查返回值的模式。
-- 次要:R6 MASTER_SECRET_PROCESS 密钥流 4 段相同(块间不推计数器,修复会破坏已存镜像兼容,待产品决策);R5 已于 2026-09-03 修复(dongle.cc/emulator.cc 构造与 rockey.cc 对齐:3 次重试+失败清零,wasm 分支保持 JS 宿主语义)。
+- **R1 保留(用户决策 2026-09-03)**:TRNG 只在初始化时生成密钥(此时有外部高熵 nonce 输入);真实场景大部分使用 Ed25519 签名(确定性 nonce,不依赖 TRNG);RandBytes 在降级为 PRNG 时返回 -EFAULT。已按此决策在代码中记录警告:**TRNG.cc RandBytes 注释**(降级语义、Ed25519 豁免、非 Ed25519 签名/密钥生成调用方必须检查返回值)与 **rockey.cc 构造函数注释**(3 次重试全失败不中止的理由)。新增 RandBytes 调用点必须保持检查返回值的模式。2026-09-03 晚补充落地**编译期强制**(31f41fe):声明/定义加 `__attribute__((warn_unused_result))`(GCC 默认生效,无需 -Wall),产品路径 3 处真实检查返回值(main.cc nonce/sPIN、wasm nonce),测试 12 处按约定 `std::ignore` 显式忽略,全平台构建 0 新增警告。
+- **R6 已修复(2026-09-03, 31f41fe, 用户产品决策)**:LocalChaos/MASTER_SECRET_PROCESS 每轮每段 `++cipher[15]`。"4 段相同"原诊断源于按独立输出缓冲假设的误读——因 union 别名(stream/cipher 同址)实际每段已链式不同;真正问题是计数器未规范推进,已修复并加注释(链式派生,非标准 CTR)。**决策理由**:构建种子每次随机生成(Makefile:40-43 `rLANG_WORLD_SEED` + Interface/xModule.mk:52-55 `rLANG_WORLD_SECRET_SEED`)→InitializeCipherState→MASTER.SECRET 掩码,重构建必然使旧镜像 MASTER.SECRET 解不开,与 H-10 同理,修复无额外兼容负担。
+- R5 已于 2026-09-03 修复(dongle.cc/emulator.cc 构造与 rockey.cc 对齐:3 次重试+失败清零,wasm 分支保持 JS 宿主语义)。
 - 修正:芯片侧 RSA/P256/SM2 私钥文件生成与文件内签名/解密走 FTRX 芯片内部,不经本 DRBG。
+
+### 9.3 构建警告清零(2026-09-03 晚, 31f41fe)
+
+- 目标:amd64-linux / aarch64-linux 构建日志(.make-*-warning.log)可消除项全部清零。
+- **TASSL(third_party, 真实 bug)**:pk7_doit.c PKCS7_signatureVerify `i` 在 no_hash 路径 BIO_read 失败 goto gerr 时未初始化 → `i = -1`;s3_lib.c `gtype = 0`(GCC 误报,行为不变);s_client.c OPT_DTLS1_3 显式报"不支持"(原静默忽略,1.1.1 分支无 DTLS1.3 实现)。
+- micro-ecc default_RNG 加 `__attribute__((unused))`(本项目经 uECC_set_rng 注入自研 RNG);HelloWorld 测试 RSA_generate_key→RSA_generate_key_ex(弃用 API);emulator.cc -Wformat 枚举转换与 -Wclass-memaccess 取 `[0]`(foobar debug 才显)。
+- **TASSL 构建是 stamp 门控**(third_party/project.mk `.build-tassl-done`):源改动需手动 make -C 各配置 Build-TASSL + install_sw 再清二进制重链接;修改第三方源时注意 pk7_doit.c/s3_lib.c 是 **GBK 编码**,必须字节级编辑(UTF-8 工具会打乱上游中文注释,曾发生一次已恢复)。
+- 不可消除:glibc 静态链接 dlopen/getaddrinfo/gethostbyname 警告(来自 glibc .gnu.warning 桩,TASSL 依赖这些符号);设备固件 readelf "bogus end-of-sibling" 提示。
+- 既有问题(未修):wasmjs 配置链接失败(Web/Emulator pki.cc 的 RockeyPKEY_Sign/Decrypt 为 rLANGIMPORT,宿主无 JS 实现)。
+
+### 9.4 协议重验(31f41fe 之后, 2026-09-03 晚)
+
+- 按 §9.1 协议重跑(`rm .foobar-dongle.bin` 一次 → 顺序跑 index 1..17 → 两轮;参数为 hex 字符串,十进制 10..17 对应 "A".."F","10","11")。
+- 结果与基线预期**逐项一致,无回归**:i1 3→0(全新镜像 Delete 失败 3 次归零);i2 两轮 0(H-09 无回归);i4/i6/i7 首轮 3/2/2 错(全新镜像删除不存在文件)二轮归零;i8 二轮 16 错(文档记录既有状态累积,精确匹配);i9/F 长测试 0 错;i10-i16 全 0。
+- i17(PKeyCountDownTest)两轮稳定 3 错:未传 argv_[1] 时跳过密钥文件创建,SM2Sign(1)/P256Sign(2)/RSAPrivate(3) ENOENT ×3——确定性既有行为(§9.1 "除 index=2 外全部索引两版本一致"涵盖此项)。
+- 结论:R6 修复 + warn_unused_result 强制 + 警告清零批次(31f41fe)无协议回归。
