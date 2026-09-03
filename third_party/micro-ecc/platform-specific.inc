@@ -1,4 +1,4 @@
-/* Copyright 2015, Kenneth MacKay. Licensed under the BSD 2-clause license. */
+﻿/* Copyright 2015, Kenneth MacKay. Licensed under the BSD 2-clause license. */
 
 #ifndef _UECC_PLATFORM_SPECIFIC_H_
 #define _UECC_PLATFORM_SPECIFIC_H_
@@ -16,7 +16,7 @@
 #include <windows.h>
 #include <wincrypt.h>
 
-static int default_RNG(uint8_t *dest, unsigned size) {
+static int __attribute__((unused)) default_RNG(uint8_t *dest, unsigned size) {
     HCRYPTPROV prov;
     if (!CryptAcquireContext(&prov, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
         return 0;
