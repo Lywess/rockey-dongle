@@ -1369,6 +1369,10 @@ int s_client_main(int argc, char **argv)
             isdtls = 1;
 #endif
             break;
+        case OPT_DTLS1_3:
+            /* DTLS 1.3 is not implemented in this 1.1.1 branch */
+            BIO_printf(bio_err, "%s: DTLSv1.3 is not supported\n", prog);
+            goto end;
         case OPT_GMTLS1_1:
 #ifndef OPENSSL_NO_CNSM
             meth = CNTLS_client_method();

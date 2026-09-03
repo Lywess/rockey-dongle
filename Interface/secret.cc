@@ -90,6 +90,7 @@ void Dongle::LocalChaos(uint32_t state[16], uint8_t loop) {
   for (int ii = 0; ii < loop; ++ii) {
     for (int i = 0; i < 16; ++i)
       cipher[i] += state[15 - i];
+    ++cipher[15];
     rlCryptoChaCha20Block(cipher, stream);
     for (int i = 0; i < 16; ++i)
       state[i] ^= cipher[i];
@@ -116,6 +117,7 @@ static void MASTER_SECRET_PROCESS(uint8_t ENCRYPT_MASTER_SECRET[256], Dongle* do
   InitializeCipherState(cipher);
   dongle->LocalChaos(cipher, 2);
   for (int i = 0; i < 4; ++i) {
+    ++cipher[15];
     rlCryptoChaCha20Block(cipher, stream);
     for (int i = 0; i < 64; ++i)
       p[i] ^= stream[i];

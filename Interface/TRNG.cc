@@ -17,7 +17,7 @@ namespace dongle {
  *!   当前调用方(curves.cc uECC RNG 包装、curve25519.cc 密钥生成、
  *!   master.cc 主密钥更新)均已检查; 新增调用点必须保持该模式。
  */
-int Dongle::RandBytes(uint8_t* buffer, size_t size) {
+__attribute__((warn_unused_result)) int Dongle::RandBytes(uint8_t* buffer, size_t size) {
   const size_t size_total = size;
   uint8_t* p = buffer;
   int error = 0;

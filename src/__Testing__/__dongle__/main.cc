@@ -159,11 +159,11 @@ int AdminTesting_SelectProductId(RockeyARM& rockey, Context_t* Context, void* Ex
   rlLOGI(TAG, "... %s ...", __FUNCTION__);
   int A = Context->argv_[0], B = Context->argv_[1], C = Context->argv_[2], D = Context->argv_[3];
   if (B == 0)
-    rockey.RandBytes((uint8_t*)&B, sizeof(B));
+    std::ignore = rockey.RandBytes((uint8_t*)&B, sizeof(B));
   if (C == 0)
-    rockey.RandBytes((uint8_t*)&C, sizeof(C));
+    std::ignore = rockey.RandBytes((uint8_t*)&C, sizeof(C));
   if (D == 0)
-    rockey.RandBytes((uint8_t*)&D, sizeof(D));
+    std::ignore = rockey.RandBytes((uint8_t*)&D, sizeof(D));
 
   sprintf(filename, ".bin/.select-product-id-%08x-%08x-%08x-%08x.log", A, B, C, D);
   const char* const kWorldMagicFile = ".bin/magic-product-id.log";
@@ -449,7 +449,7 @@ int Testing_RSAExec(Dongle& rockey, Context_t* Context_, void* ExtendBuf) {
     rlLOGXI(TAG, Context->pubkey_, 256, "rockey.GenerateRSA %x", modules);
 
     rlLOGI(TAG, "RSA.Test.loop %d => %d", i, error);
-    rockey.RandBytes(input, sizeof(input));
+    std::ignore = rockey.RandBytes(input, sizeof(input));
 
     szOut = sizeof(input);
     memcpy(output, input, sizeof(input));
@@ -578,7 +578,7 @@ int Testing_SM2Exec(Dongle& rockey, Context_t* Context, void* ExtendBuf) {
     Context->ts_[7] = tick5;
 
     for (int i = 0; i < 2; ++i) {
-      rockey.RandBytes(H, 32);
+      std::ignore = rockey.RandBytes(H, 32);
       if (rockey.SM2Sign(0x8100, H, R, S) < 0 || rockey.SM2Verify(X, Y, H, R, S) < 0 ||
           rockey.SM2Sign(K, H, R, S) < 0 || rockey.SM2Verify(X, Y, H, R, S) < 0) {
         ++error;
@@ -641,7 +641,7 @@ int Testing_SM2Exec(Dongle& rockey, Context_t* Context, void* ExtendBuf) {
 #endif
 
     uint8_t CK[32];
-    rockey.RandBytes(H, 32);
+    std::ignore = rockey.RandBytes(H, 32);
     if (rockey.SM2Encrypt(X, Y, H, 16, sm2_cipher_) < 0) {
       ++error;
       rlLOGXI(TAG, sm2_cipher_, sizeof(sm2_cipher_), "sm2_cipher_.encrypt.16");
@@ -661,7 +661,7 @@ int Testing_SM2Exec(Dongle& rockey, Context_t* Context, void* ExtendBuf) {
       rlLOGW(TAG, "sm2_cipher_.decrypt.16 error");
     }
 
-    rockey.RandBytes(H, 32);
+    std::ignore = rockey.RandBytes(H, 32);
     if (rockey.SM2Encrypt(X, Y, H, 10, sm2_cipher_) < 0) {
       ++error;
       rlLOGXI(TAG, sm2_cipher_, sizeof(sm2_cipher_), "sm2_cipher_.encrypt.16");
@@ -798,7 +798,7 @@ int Testing_P256Exec(Dongle& rockey, Context_t* Context, void* ExtendBuf) {
         rlLOGXE(TAG, V, 32, "DecompressPointPrime256v1 Error ...");
       }
 
-      rockey.RandBytes(H, 32);
+      std::ignore = rockey.RandBytes(H, 32);
       if (rockey.SignMessagePrime256v1(K, H, R, S) < 0) {
         ++error;
         rlLOGE(TAG, "SignMessagePrime256v1 Error ...");
@@ -848,7 +848,7 @@ int Testing_P256Exec(Dongle& rockey, Context_t* Context, void* ExtendBuf) {
       }
     }
 
-    rockey.RandBytes(H, 32);
+    std::ignore = rockey.RandBytes(H, 32);
     if (rockey.P256Sign(0x100, H, R, S) < 0 || rockey.P256Verify(X, Y, H, R, S) < 0 ||
         rockey.P256Sign(K, H, R, S) < 0 || rockey.P256Verify(X, Y, H, R, S) < 0) {
       ++error;
@@ -1166,7 +1166,7 @@ int Testing_ChaChaPoly(Dongle& rockey, Context_t* Context, void* ExtendBuf) {
   for (int loop = 0; loop < kTestLoop; ++loop) {
     rlLOGI(TAG, "Testing_ChaChaPoly %d/%d %d", loop, kTestLoop, error);
 
-    rockey.RandBytes(reinterpret_cast<uint8_t*>(state), sizeof(state));
+    std::ignore = rockey.RandBytes(reinterpret_cast<uint8_t*>(state), sizeof(state));
 
     for (int i = 0; i < 10; ++i) {
       uint8_t sm3[32], verify[32];
@@ -1177,7 +1177,7 @@ int Testing_ChaChaPoly(Dongle& rockey, Context_t* Context, void* ExtendBuf) {
       uint8_t check_[1024];
 #endif /* X_BUILD_native */
 
-      rockey.RandBytes(key, sizeof(key));
+      std::ignore = rockey.RandBytes(key, sizeof(key));
       for (int off = 0; off < 512; off += 64, ++state[12])
         rlCryptoChaCha20Block(state, &buffer[off]);
 
@@ -1403,7 +1403,7 @@ int Testing_PKeyCountDownTest(Dongle& rockey, Context_t* Context_, void* ExtendB
       ++error;
   }
 
-  rockey.RandBytes(Context->z_hash, sizeof(Context->z_hash));
+  std::ignore = rockey.RandBytes(Context->z_hash, sizeof(Context->z_hash));
   if (rockey.SM2Sign(1, Context->z_hash, &Context->sm2_sign[0], &Context->sm2_sign[32]) < 0)
     ++error;
   if (rockey.P256Sign(2, Context->z_hash, &Context->p256_sign[0], &Context->p256_sign[32]) < 0)

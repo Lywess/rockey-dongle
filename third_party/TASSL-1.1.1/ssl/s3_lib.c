@@ -4816,7 +4816,7 @@ EVP_PKEY *ssl_generate_pkey_group(SSL *s, uint16_t id)
     EVP_PKEY_CTX *pctx = NULL;
     EVP_PKEY *pkey = NULL;
     const TLS_GROUP_INFO *ginf = tls1_group_id_lookup(id);
-    uint16_t gtype;
+    uint16_t gtype = 0;
 
     if (SM1_1_VERSION != s->version) {
         if (ginf == NULL) {

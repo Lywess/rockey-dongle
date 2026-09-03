@@ -81,7 +81,7 @@ int WriteDongleFile(const char* file, const uint8_t content[], size_t size) {
   return static_cast<int>(size);
 }
 rLANGIMPORT int rLANGAPI SetDongleLEDState(void* thiz, LED_STATE state) {
-  rlLOGE(TAG, "TODO: Implements SetDongleLEDState %p/%d", thiz, state);
+  rlLOGE(TAG, "TODO: Implements SetDongleLEDState %p/%d", thiz, (int)state);
   return 0;
 }
 #endif /* */
@@ -244,7 +244,7 @@ class DongleHandle {
       DongleHandle* self = *outHandle = new DongleHandle(perm);
       self->sb_ = sb; /* */
       memcpy(&self->state_mask_[0], &state_mask_[0], 64);
-      memcpy(&self->master_prikey_masked_, &MASTER_PKMASK[0], 64);
+      memcpy(&self->master_prikey_masked_[0], &MASTER_PKMASK[0], 64);
 
       uint32_t total = 0;
       memset(secret, 0, 64);

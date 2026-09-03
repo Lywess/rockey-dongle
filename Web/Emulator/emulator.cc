@@ -52,7 +52,7 @@ rLANGWASMEXPORT int EmuExecv(Dongle* dongle, uint8_t InOutBuf[1024]) {
   memset(ExtendBuf, 0, sizeof(ExtendBuf));
 
   if (0 == result && vm.kSizeOutput < 1024) {
-    dongle->RandBytes((uint8_t*)InOutBuf + vm.kSizeOutput, 1024 - vm.kSizeOutput);
+    result = dongle->RandBytes((uint8_t*)InOutBuf + vm.kSizeOutput, 1024 - vm.kSizeOutput);
   }
 
   if (0 != result) {

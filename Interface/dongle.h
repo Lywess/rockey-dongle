@@ -246,7 +246,7 @@ class Dongle {
   void InitializeEntropyLocal();
 
  public:
-  virtual int RandBytes(uint8_t* buffer, size_t size);
+  virtual __attribute__((warn_unused_result)) int RandBytes(uint8_t* buffer, size_t size);
   virtual int SeedBytes(const void* buffer, size_t size);
   virtual int HwARandBytes(uint8_t* buffer, size_t size);
   virtual int SeedSecret(const void* input, size_t size, void* value /* size_is(16) */);

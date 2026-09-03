@@ -40,7 +40,8 @@ static int default_RNG(uint8_t *dest, unsigned size) {
     #define O_CLOEXEC 0
 #endif
 
-static int default_RNG(uint8_t *dest, unsigned size) {
+/* Unused: this project supplies its own RNG via uECC_set_rng. */
+static int __attribute__((unused)) default_RNG(uint8_t *dest, unsigned size) {
     int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
     if (fd == -1) {
         fd = open("/dev/random", O_RDONLY | O_CLOEXEC);

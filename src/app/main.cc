@@ -33,7 +33,7 @@ int Main(void* InOutBuf, void* ExtendBuf, _Ty* dongle) {
     result = vm.Execute();
 
   if (0 == result && vm.kSizeOutput < 1024) {
-    dongle->RandBytes((uint8_t*)InOutBuf + vm.kSizeOutput, 1024 - vm.kSizeOutput);
+    result = dongle->RandBytes((uint8_t*)InOutBuf + vm.kSizeOutput, 1024 - vm.kSizeOutput);
   }
 #else  /* __RockeyARM__ || __EMULATOR__ */
   int execute_result = 0;
@@ -201,7 +201,8 @@ static int RockeyARM_Lock(RockeyARM* dongle, const char* hid) {
   uint8_t zPIN[8];
 
   RAND_bytes(zPIN, sizeof(zPIN));
-  dongle->RandBytes((uint8_t*)sPIN, sizeof(sPIN));
+  if (0 != dongle->RandBytes((uint8_t*)sPIN, sizeof(sPIN)))
+    return -EFAULT;
   for (int i = 0; i < 8; ++i)
     zPIN[i] ^= sPIN[i];
 

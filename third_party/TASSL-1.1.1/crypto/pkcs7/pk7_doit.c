@@ -1226,7 +1226,7 @@ int PKCS7_signatureVerify(BIO *bio, PKCS7 *p7, PKCS7_SIGNER_INFO *si,
 {
     ASN1_OCTET_STRING *os;
     EVP_MD_CTX *mdc_tmp = NULL, *mdc = NULL;
-    int ret = 0, i;
+    int ret = 0, i = -1;
     int md_type;
     STACK_OF(X509_ATTRIBUTE) *sk;
     BIO *btmp;

@@ -35,7 +35,11 @@ constexpr uint32_t TAG = rLANG_DECLARE_MAGIC_Xs("Foobar");
 void EVP_PKEY_CTX_Tests() {
   {
     /// RSA ...
-    RSA* rsa = RSA_generate_key(2048, RSA_F4, nullptr, nullptr);
+    BIGNUM* e = BN_new();
+    BN_set_word(e, RSA_F4);
+    RSA* rsa = RSA_new();
+    RSA_generate_key_ex(rsa, 2048, e, nullptr);
+    BN_free(e);
     EVP_PKEY* pkey = EVP_PKEY_new();
     EVP_PKEY_set1_RSA(pkey, rsa);
 
@@ -188,7 +192,11 @@ namespace {
 
 struct RoekcyRSA final : XIRockeyPKEY {
   RoekcyRSA() {
-    rsa_ = RSA_generate_key(2048, RSA_F4, nullptr, nullptr);
+    BIGNUM* e = BN_new();
+    BN_set_word(e, RSA_F4);
+    rsa_ = RSA_new();
+    RSA_generate_key_ex(rsa_, 2048, e, nullptr);
+    BN_free(e);
     int len = BN_bn2binpad(RSA_get0_n(rsa_), N_, 256);
     if (len != 256)
       abort();

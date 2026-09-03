@@ -340,6 +340,7 @@ void mod_sqrt_sm2(uECC_word_t* a, const CurveSM2_t* curve) {
  *! ... SM2 ...
  */
 int Dongle::CheckPointOnCurveSM2(const uint8_t X[32], const uint8_t Y[32]) {
+  std::ignore = TAG;
   uECC_word_t tmp1[8];
   uECC_word_t tmp2[8];
   uECC_word_t point[8 * 2];

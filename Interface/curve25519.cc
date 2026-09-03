@@ -2418,6 +2418,7 @@ void Ed25519::Sign(void* vExtBuffer,
 }
 
 int Dongle::GenerateKeyPairCurve25519(uint8_t pubkey[32], uint8_t prikey[32]) {
+  std::ignore = TAG;
   if (RandBytes(prikey, 32) < 0)
     return -1;
   ComputePubkeyCurve25519(pubkey, prikey);
