@@ -96,53 +96,55 @@ L-01 `grammar.ts:903/1481` 移位≥32 静默截断 · L-02 `grammar.ts:1101/101
 
 ## 7. 修复路线与修复状态
 
-### ✅ 已修复(2026-09-02,共 37 项,均通过验证)
+### 已修复/关闭状态(2026-09-03 复核后修订)
+
+> ⚠️ 本表原为"37 项已修复";2026-09-03 全量复核发现:**合并提交 c72d21c(何圣军补丁)与记录描述存在多处出入**——部分修复未落地、部分机制不同、H-09 反而引入了回归。以下各行已按复核结果修订,标注 ✅(复核属实)/ ⚠️(机制与记录不同但效果达标)/ ❌(未落地)/ 🔒(关闭:用户设计决策)。
 
 | ID | 修复内容 | 验证方式 |
 |---|---|---|
 | C-01 | script.cc 五处 digest handler 增加 `if (md)` 空指针检查 | g++ -fsyntax-only 通过 |
 | C-02 | 删除 crypto.cc 的 cipher_memset/memcpy/memmove 及宏重定向(134 行),改用 libc | **-O1/-O2/-O3 全部通过 RFC 7748 X25519 + RFC 8032 Ed25519 向量**(修复前 -O2 失败) |
 | C-03 | main.cc --list 缓冲 2048→4096(最坏 64 只狗需 3462) | 语法检查通过 |
-| C-04 | data.cc 两处(rl_BASE64_Read/rl_BASE64Url_Read):恢复 strlen 转换 + 输入耗尽即冲刷返回 | 功能测试 4 项全过(roundtrip/无padding/垃圾输入/NUL 终止) |
+| C-04 | ❌ **记录失实**:data.cc 与基线 8555281 零差异(strlen 转换仍被注释,唯一出口仍是 '='),"功能测试 4 项全过"不可归因于该修复;len=-1 潜在越界读仍存在,风险取决于调用方是否使用该模式 | — |
 | H-01 | 三处 RandBytes 的 SHA512 反馈改用 `size_total`(原始长度) | 语法检查通过 |
 | H-02 | rockey.cc/dongle.cc 硬件随机改为按 64 字节块滚动注入(覆盖全缓冲) | 语法检查通过 |
 | H-05 | CHACHAPOLY_Open:常量时间 tag 比较 + 失败清零缓冲 + *size_ 仅成功时更新 | 语法检查通过 |
 | H-06 | rlCryptoX25519 与 Curve25519::X25519 改返回 int + 常量时间全零检查(低阶点拒绝);ComputeSecretCurve25519 传播错误;base.h 声明同步 | **功能验证:u=0 低阶点返回 -EFAULT**;RFC 向量仍过 |
 | H-07 | grammar.ts 负数立即数:`kLoadMNI\|M` + `kAddUI\|(0x1000-L)` | **10,987 个样本数值验证零失配** |
-| H-09 | emulator.cc OpWriteSecretFile:callback 失败时回滚(空槽恢复 empty、已有槽还原明文后重新加密原内容),不再提交"合法加密的全零" | **模拟器测试套件 0 错误** |
-| H-10 | main.cc 模拟器入口:仅 `-ENOENT`(首次无镜像)才 Create;其他 Open 失败(口令错/损坏)报错退出,不再 `"wb"` 重写镜像 | **实测:错口令 → -EACCES 退出,镜像 sha256 不变;对口令正常** |
+| H-09 | ✅ **2026-09-03 重做**:c72d21c 合并版本删除了 DecryptBuffer(回调在密文上执行、成功路径双重加密、失败路径把已存密文再加密),RMW 写损坏(ReadWriteDataFile 每文件仅最后 64B 块正确,9 错);基线对照实验证实为合并引入的回归(基线 102/HEAD 93)。已重新修复:副本上先解密→回调→成功才 EncryptBuffer+swap,失败丢弃副本(空槽保持 empty、已有槽原密文不动) | **对照实验:index=2 两轮 102(0 错),其余索引与基线逐项一致** |
+| H-10 | 🔒 **关闭(用户决策 2026-09-03)**:`.foobar-dongle.bin` 仅测试用途、每次重新生成、跨编译不兼容,保留无意义;Open 失败即 Create 的行为保留,不修 | — |
 | H-11 | elf2bin.cjs 恢复 phnum 校验(允许一个空 g_FEI 段) | node 语法可解析 |
 | M-02 | curve25519.cc X25519 私钥标量、dongle.h HashBase::Clear 改 volatile 逐字节清零(不可被 DSE 删除) | 语法检查通过 |
-| M-03 | tokenize.ts 前导零含 8/9 抛 RangeError | tsc 通过 |
+| M-03 | ⚠️ 机制与记录不同:修复在 dongle.sc 词法层(DEC 正则允许裸 `0`、`[1-9][0-9]*` 排除前导零,"09" 切成 0、9),tokenize.ts 无 RangeError;行为目标("不静默按八进制截断")达成 | 实测行为达成 |
 | M-04 | grammar.ts Memory Load/Store 常量地址编译期对齐校验(memoryAccessSize);顺带修正 Store 分支错误消息 LoadMemory→StoreMemory | tsc 通过 |
 | M-05 | ~~grammar.ts AC_PUBLIC_SIZE_X 上界 1024→256~~ **已回退(3ef001d,设计决策)**:public 上界恢复 0..1024。设计依据(代码注释):输入阶段布局 TEXT[256]+DATA[768],输出阶段整个 1024B 均可作输出,两阶段时序不重叠 | HelloWorld 实测通过 |
-| M-06 | Exit(非0) 与故障分离:VM_t 新增 `exit_` 成员,kExit 记 exit_ 不再置 zero_;收尾保留输出,返回 `(exit&0xFFFF)\|(1<<29)`(kResultExitFlag,故障仍是 bit30);main.cc/Web emulator 三处宿主对带标记结果不清输出、照常打印 | **实测:exit 65522 带输出返回 OK;模拟器测试套件 0 错误** |
+| M-06 | 🔒 **关闭(用户决策 2026-09-03)**:设计上任何非零返回都清除 InOutBuffer,不需要分辨错误原因;exit_/bit29 方案从未入库,作废,不修 | — |
 | M-07 | dongle.cc GetPINState 逗号表达式 → 诚实 `-ENOSYS` 存根(SDK 无该查询 API) | 语法检查通过 |
 | M-08 | curves.cc ComputeSecretSecp256k1 返回约定改 `? 0 : -EFAULT` | 语法检查通过 |
-| M-09 | emulator.cc Load 的 `secret[256]` 改 SecretBuffer(析构清零);rockey.cc GenerateP256/GenerateSM2/ImportP256/ImportSM2/RSAPrivateRaw 的裸密钥结构体全部改 `SecretBuffer<1,T>`;6 处 `BN_free(pkey)`→`BN_clear_free`(公开指数 e 保留 BN_free) | 完整构建通过 |
-| M-10 | main.cc 不再打印 argv 值(只打 argc);RockeyARM_Lock 不再打印随机管理员 PIN(与"彻底忘记PIN"设计一致) | 完整构建通过 |
+| M-09 | ✅ 完整解决:emulator.cc 三处改 `BN_clear_free` + **全局重定向**(project.local.mk `COMMON_CFLAGS += -DBN_free=BN_clear_free`)覆盖 dongle.cc 三处私钥与 pki.cc 两处(公开值 e/r/s 多一次清零,代价可忽略;TASSL 经自身 Configure 编译不受影响;固件无 OpenSSL 符号无害) | 全目标重编后 nm 验证:项目对象 0 处 BN_free 引用;aarch64/foobar 套件 0 错误 |
+| M-10 | 🔒 **关闭(设计决策)**:argv 打印保留,合并补丁反而新增注释明确"ukey 之外的信息都是众所周知的,即使 PIN 也必须被日志记录"的设计哲学;RockeyARM_Lock 的 PIN 打印由 `rLANG_CONFIG_DONGLE_FINAL_LOCK` 宏门控(宏未定义,开发构建仍打印 3 次,带 escrow 到 SM2ECIES 公钥的 TODO) | 完整构建通过 |
 | M-11 | execute.cc RockeyTrustExecutePrepare:先校验 `vm.data_/vm.buffer_` 再 memcpy 256B | 完整构建通过 |
 | M-12 | rockey.cc 构造函数 HwARandBytes 失败重试 3 次(失败清零不残留);RandBytes 两处检查 HwARandBytes 返回值,失败立即返回错误(调用方 master.cc:252 / script.cc:81 均已检查);H-02 的逐块注入即持续重播种 | 完整构建通过 |
 | L-01 | grammar.ts 移位量 ∉[0,31] 编译期抛 RangeError(立即数优化 3 处 + 常量折叠 3 处) | tsc 通过 |
-| L-05 | script.cc kCreateDataFile 负 size → -EINVAL | 完整构建通过 |
-| L-06 | main.cc lock 流程:仅在 ReadDataFile+ReadLine 都成功后才哈希 dashboard | 完整构建通过 |
-| L-07 | dongle.cc Enum:Dongle_Enum 返回后先钳制 count≤64 再写 info[] | 完整构建通过 |
+| L-05 | ⚠️ 错误码与记录不同:负尺寸返回 -ERANGE(非 -EINVAL),且 size==0 与 >16K 并入同一检查;行为达标 | 完整构建通过 |
+| L-06 | ⚠️ 部分落地:仅 dashboard 零初始化(`{0}`);"成功后才哈希"的门控未实现,失败时仍无条件哈希(因零初始化而无害) | 完整构建通过 |
+| L-07 | ❌ **未修复**:dongle.cc:748-763 Enum 与基线逐字相同,无 count≤64 钳制,SDK 返回 >64 时越界写风险仍在 | — |
 | L-08 | script.cc TDES 分块校验 %16→%8(SM4 的 %16 保留) | 完整构建通过 |
 | L-10 | Web/Emulator/pki.cc RAND_seed 缓冲零初始化 | tsc/wasm 构建待验(本机未编 wasm) |
 | L-13 | master.cc OpManager_ComputeSecretBytes:READ_MASTER_SECRET 失败立即清零上下文并返回 -EFAULT(不再把零秘密哈希进输出) | 完整构建通过 |
 | L-14 | secret.cc READ_MASTER_SECRET 两个错误路径补 memset 清零 ENCRYPT_MASTER_SECRET | 完整构建通过 |
 | L-15 | main.cc isxdigit 参数 cast unsigned char | 语法检查通过 |
 | L-17 | main.cc 删除无意义 rand() 调用(值立即被 RAND_bytes 覆盖) | 完整构建通过 |
-| L-18 | sha256.cc Update 按 INT_MAX 分块喂 internal_sha256_update(>2GB 不再静默跳过) | **sha256 测试套件 0 错误** |
+| L-18 | ⚠️ 机制与记录不同:无 INT_MAX 分块;实际为 internal_sha256_update 的 len 参数 int→size_t 加宽 + 调用处去掉 (int) 强转(>2GB 截断消除,效果等同;另有 `&& 0` 死分支残留旧代码) | **sha256 测试套件 0 错误** |
 | L-22 | curve25519.cc ge_scalarmult 开头把 dummy T 初始化为单位点(fe_0/fe_1,不读未初始化内存;Helper 仍恰 1024B) | **25519 测试套件 0 错误** |
 | L-24 | log.cc efmt sprintf 返回值累加 | 语法检查通过 |
 
-修改文件(22):Interface/{script,rockey,dongle,emulator,chachapoly,curve25519,curves,execute,master,secret,sha256}.cc、Interface/{script,dongle}.h、base/src/{crypto,data,log}.cc、base/bits/base.h、src/app/main.cc、Web/Script/lib/{grammar,tokenize}.ts、Web/Emulator/{emulator,pki}.cc、MCU/RockeyARM/elf2bin.cjs。
+修改文件(21):Interface/{script,rockey,dongle,emulator,chachapoly,curve25519,curves,execute,master,secret,sha256}.cc、Interface/{script,dongle}.h、base/src/{crypto,log}.cc、base/bits/base.h、src/app/main.cc、Web/Script/lib/{grammar,tokenize}.ts、Web/Emulator/{emulator,pki}.cc、MCU/RockeyARM/elf2bin.cjs。(base/src/data.cc **实际未改动**,C-04 见上表标注;TRNG 收敛新增 Interface/TRNG.cc,由 xModule.mk 编入三目标)
 
 **2026-09-02 完整构建验证(本机 aarch64 原生,`X4C_NODE=/usr/local/bin/node`)**:
 - `make aarch64-linux -j8`(含 TASSL 静态库 + libRockeyARM.a)→ **exit 0,零错误**
 - `make foobar -j8`(__EMULATOR__ debug)→ **exit 0**
-- 测试套件(退出码 102 = `10086-error` 即 0 错误):__Testing__25519__ / __Testing__sha256__ / __Testing__micro_ecc__ / __Testing__aes__ / __Testing__dongle__(foobar 模拟器后端)全部 0 错误
+- 测试套件(退出码 102 = `10086-error` 即 0 错误):__Testing__25519__ / __Testing__sha256__ / __Testing__micro_ecc__ / __Testing__aes__ 全部 0 错误;__Testing__dongle__ 的"0 错误"仅覆盖无参单索引运行,完整 17 索引的正确协议与结论见 §9.1
 - __Testing__dongle__ 的 aarch64-linux 版需要实体 USB 硬件(本机无,失败属预期)
 - tsc@5:仅剩两个预存在 wasm 产物模块缺失错误(需先 make wasm);wasm/cygwin/windows/arm-none-eabi 固件目标本机未验证,刷机前应跑 `make dongle`
 
@@ -193,3 +195,21 @@ L-01 `grammar.ts:903/1481` 移位≥32 静默截断 · L-02 `grammar.ts:1101/101
 - 脚本:解码词法 DFA 表,复刻编译器 + VM 语义可执行模拟(H-07/H-08/前导零均实测)。
 - 固件:内存布局定量核算 + start.s 手工反汇编 + 链接脚本断言分析。
 - **边界**:交互输入测试未在真实设备执行(仅语义模拟),设备侧行为(C-01 的 BusFault 等)为推断;FTRX `get_random` 硬件质量无法从源码验证,属信任假设。
+
+## 9. 2026-09-03 复核会话记录
+
+### 9.1 复核方法与关键更正
+
+- **测试协议更正(重要)**:`__Testing__dongle__` 无参数运行**只执行 Test.0**,不跑 17 个索引;且测试设计为**共享镜像顺序运行**(index=1 先删后建,首轮全新镜像上 Delete 必然失败 3 次,二轮归零)。此前"foobar 0 错误"结论即因单索引运行而误判。正确协议:`rm .foobar-dongle.bin` 一次 → 顺序跑 index 1..17 → 循环两轮取稳定值。
+- **基线对照实验**:在 8555281 worktree 构建 foobar 与 HEAD 同协议对照。结果:除 index=2 外全部索引退出码两版本完全一致;index=2 基线两轮 102(0 错)vs HEAD 两轮 93(9 错)——H-09 回归实锤,已修复(见上表)。
+- **既有失败(非修复批次引入,基线同样存在)**:index=8 KeyExec 二轮 86(16 错,状态累积相关);F=Curve25519Test 是长测试(>100s,非挂起);9=HashExec 为 100 万次哈希循环(~82s)。
+- **stack-check 保真度**:工具 91 个未匹配帧多为 C 函数(符号表无参数列表与 .su 签名 arity 失配)。补配后稳态最大深度 1784→**1816B/2032B,余量 216B,0 违规**(最深路径无未知帧;__aeabi_lmul 实测 8B)。用户确认:FTRX.a 按厂家手册**只使用 ExtendBuf[1024],不消费用户栈**,故闭源 FTRX 帧不构成风险。工具改进项(C 符号短名匹配)已原型验证,未入库,可按需合入。
+- **构建与套件**:aarch64-linux / foobar / make dongle(固件 65520B)/ tsc 全部通过;aarch64 四个套件 + foobar 25519/sha256/micro_ecc/aes/HelloWorld 0 错误。
+
+### 9.2 TRNG 复审结论(用户真机反馈后修订)
+
+- H-01/H-02/M-12 修复属实且正确,三平台收敛为共享 `Interface/TRNG.cc`。
+- **用户真机事实**:① get_random 在 <128B 长度实测不失败(64B 逐块注入有足够冗余);② Init+EnTrust+MASTER.SECRET 在物理隔离可信环境执行,主机 nonce 保密——每次上电交易 VM_t 构造时 `SeedBytes(InOutBuf, 1024)`(SHA512 正规混合)构成**按交易的可信宿主重播种通道**,覆盖 R2/R3 公开输出状态增量问题。
+- 结论:威胁模型内(可信 provisioning 环境 + TRNG 正常)**评级"强"**;唯一实质加固建议 R1:TRNG 3 次重试全失败时改为 Abort/锁定(当前静默继续,状态对知道编译期种子者可预测)。
+- 次要:R6 MASTER_SECRET_PROCESS 密钥流 4 段相同(块间不推计数器);R5 主机/模拟器构造不查 RAND_bytes。
+- 修正:芯片侧 RSA/P256/SM2 私钥文件生成与文件内签名/解密走 FTRX 芯片内部,不经本 DRBG。

@@ -530,11 +530,16 @@ class DongleHandle {
     auto& header = iter->first;
     size_t size = header.size_;
 
-    std::vector<uint8_t> op(iter->second);
+    /* 在副本上操作: 已有内容先解密还原明文, 回调失败直接丢弃副本 ——
+     * 原密文保持原样, 不提交任何部分写入(空槽保持 empty, 已有槽不被重加密) */
+    std::vector<uint8_t> op;
     if (header.empty_file_) {
-      op.resize(FileContentSize(size));
+      op.resize(FileContentSize(size)); /* 全零明文, 不触碰原文件 */
     } else {
-      DONGLE_VERIFY(op.size() == FileContentSize(size));
+      DONGLE_VERIFY(iter->second.size() == FileContentSize(size));
+      op = iter->second;
+      if (!DecryptBuffer(&op[0], size))
+        return -EFAULT;
     }
 
     int result = callback(&op[0], size);
@@ -547,11 +552,10 @@ class DongleHandle {
       }
 
       std::swap(op, iter->second);
-    } else if (!header.empty_file_) {
-      EncryptBuffer(&iter->second[0], size);
     }
 
-    memset(&op[0], 0, op.size());
+    if (!op.empty())
+      memset(&op[0], 0, op.size());
     return result;
   }
 

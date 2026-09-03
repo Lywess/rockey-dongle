@@ -19,6 +19,7 @@ call_add_optimize_module = $(call x4c_add_optimize_module,$(LOCAL_MODULE))
 ##
 ##
 COMMON_CFLAGS := -I$(wORLD_ROOT) -I$(wORLD_ROOT)/third_party/pre-built/include
+COMMON_CFLAGS += -DBN_free=BN_clear_free
 
 ##
 ##
