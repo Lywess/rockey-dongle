@@ -210,6 +210,7 @@ L-01 `grammar.ts:903/1481` 移位≥32 静默截断 · L-02 `grammar.ts:1101/101
 
 - H-01/H-02/M-12 修复属实且正确,三平台收敛为共享 `Interface/TRNG.cc`。
 - **用户真机事实**:① get_random 在 <128B 长度实测不失败(64B 逐块注入有足够冗余);② Init+EnTrust+MASTER.SECRET 在物理隔离可信环境执行,主机 nonce 保密——每次上电交易 VM_t 构造时 `SeedBytes(InOutBuf, 1024)`(SHA512 正规混合)构成**按交易的可信宿主重播种通道**,覆盖 R2/R3 公开输出状态增量问题。
-- 结论:威胁模型内(可信 provisioning 环境 + TRNG 正常)**评级"强"**;唯一实质加固建议 R1:TRNG 3 次重试全失败时改为 Abort/锁定(当前静默继续,状态对知道编译期种子者可预测)。
+- 结论:威胁模型内(可信 provisioning 环境 + TRNG 正常)**评级"强"**。
+- **R1 保留(用户决策 2026-09-03)**:TRNG 只在初始化时生成密钥(此时有外部高熵 nonce 输入);真实场景大部分使用 Ed25519 签名(确定性 nonce,不依赖 TRNG);RandBytes 在降级为 PRNG 时返回 -EFAULT。已按此决策在代码中记录警告:**TRNG.cc RandBytes 注释**(降级语义、Ed25519 豁免、非 Ed25519 签名/密钥生成调用方必须检查返回值)与 **rockey.cc 构造函数注释**(3 次重试全失败不中止的理由)。新增 RandBytes 调用点必须保持检查返回值的模式。
 - 次要:R6 MASTER_SECRET_PROCESS 密钥流 4 段相同(块间不推计数器);R5 主机/模拟器构造不查 RAND_bytes。
 - 修正:芯片侧 RSA/P256/SM2 私钥文件生成与文件内签名/解密走 FTRX 芯片内部,不经本 DRBG。

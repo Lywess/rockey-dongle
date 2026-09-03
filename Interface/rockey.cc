@@ -8,6 +8,14 @@ rLANG_DECLARE_MACHINE
 namespace dongle {
 
 Dongle::Dongle() {
+  /**
+   *! TRNG 启动熵(R1, 设计接受): 3 次重试全失败时不中止启动 ——
+   *! - 实际使用中 get_random(<128B) 不失败; 即使失败, 初始化/EnTrust/
+   *!   MASTER.SECRET 流程中的外部高熵 nonce 会经 VM_t 构造的
+   *!   SeedBytes(InOutBuf, 1024) 注入状态。
+   *! - Ed25519 签名(确定性 nonce)不受影响; 其余随机需求的降级语义
+   *!   见 TRNG.cc RandBytes 的警告注释(-EFAULT 必须被调用方检查)。
+   */
   for (int i = 0; i < 3; ++i) {
     if (0 == HwARandBytes((uint8_t*)entropy_local_, sizeof(entropy_local_)))
       break;
