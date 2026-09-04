@@ -388,6 +388,29 @@ int Dongle::RSAPublic(int bits,
   return result;
 }
 
+/*! 标准 PKCS#1 v1.5(SHA256 DigestInfo)验签:TASSL RSA_verify */
+int Dongle::RSAVerifyPkcs1(int bits, uint32_t exponent, const uint8_t modulus[256], const uint8_t hash[32], uint8_t signature[256]) {
+  if (bits != 2048)
+    return last_error_ = -EINVAL;
+
+  RSA* rsa = RSA_new();
+  BIGNUM* n = BN_bin2bn(modulus, 256, nullptr);
+  BIGNUM* e = BN_new();
+
+  DONGLE_VERIFY(rsa && n && e);
+  DONGLE_VERIFY(1 == BN_set_word(e, exponent));
+  DONGLE_VERIFY(1 == RSA_set0_key(rsa, n, e, nullptr));
+
+  int result = 0;
+  if (1 != RSA_verify(NID_sha256, hash, 32, signature, 256, rsa)) {
+    rlLOGE(TAG, "RSA_verify error %ld", ERR_get_error());
+    result = -1;
+  }
+
+  RSA_free(rsa);
+  return result;
+}
+
 int Dongle::P256Sign(int id, const uint8_t hash_[32], uint8_t R[32], uint8_t S[32]) {
   uint8_t sign[64], hash[32];
   CopyReverse<32>(hash, hash_);
@@ -547,6 +570,68 @@ int Dongle::SM2Verify(const uint8_t X[32],
 
   if (ret < 0) {
     rlLOGE(TAG, "SM2Verify %s", ret == -1 ? "False" : "Error");
+    ERR_print_errors_cb(
+        [](const char* str, size_t len, void* u) {
+          rlLOGE(TAG, "\t%s", str);
+          return 1;
+        },
+        nullptr);
+  }
+
+  return ret;
+}
+
+/*! SM2 变长消息验签:必须走 EVP 高层路径(EVP_PKEY_SM2 别名 + EVP_sm3),
+ *! 由 TASSL 按 GM/T 0003 计算 e = SM3(Z_A || message)(默认 ID, ECDSA_sm2_get_Z)。
+ *! 注意:公开 sm2_verify(dgst,...) 把输入直接当 e 用、不计算 Z_A, 不可用于
+ *! 标准 X509 SM2 证书。设备 COS 语义一致(内部计算 Z_A)。 */
+int Dongle::SM2VerifyMessage(const uint8_t X[32],
+                             const uint8_t Y[32],
+                             const void* message,
+                             size_t size_message,
+                             const uint8_t R[32],
+                             const uint8_t S[32]) {
+  int ret = -2;
+  uint8_t pubkey[65], signbuf[80];
+  EC_KEY* eckey = EC_KEY_new_by_curve_name(NID_sm2);
+  const EC_GROUP* const group = EC_KEY_get0_group(eckey);
+
+  EC_POINT* point = EC_POINT_new(group);
+  ECDSA_SIG* sign = ECDSA_SIG_new();
+  DONGLE_VERIFY(eckey && point && sign);
+  DONGLE_VERIFY(ECDSA_SIG_set0(sign, BN_bin2bn(R, 32, nullptr), BN_bin2bn(S, 32, nullptr)));
+
+  do {
+    pubkey[0] = 4;
+    memcpy(&pubkey[1], X, 32);
+    memcpy(&pubkey[33], Y, 32);
+    if (EC_POINT_oct2point(group, point, pubkey, 65, nullptr) <= 0)
+      break;
+    if (EC_POINT_is_on_curve(group, point, nullptr) <= 0)
+      break;
+    if (EC_KEY_set_public_key(eckey, point) <= 0)
+      break;
+
+    EVP_PKEY* pkey = EVP_PKEY_new();
+    DONGLE_VERIFY(pkey && EVP_PKEY_set1_EC_KEY(pkey, eckey) > 0);
+    EVP_PKEY_set_alias_type(pkey, EVP_PKEY_SM2); /* 触发 sm2 EVP 路径 */
+
+    uint8_t* p = signbuf;
+    int signlen = i2d_ECDSA_SIG(sign, &p);
+
+    EVP_MD_CTX* mctx = EVP_MD_CTX_new();
+    DONGLE_VERIFY(mctx && EVP_DigestVerifyInit(mctx, NULL, EVP_sm3(), NULL, pkey) > 0);
+    ret = EVP_DigestVerify(mctx, signbuf, signlen, static_cast<const uint8_t*>(message), size_message) > 0 ? 0 : -1;
+    EVP_MD_CTX_free(mctx);
+    EVP_PKEY_free(pkey);
+  } while (0);
+
+  ECDSA_SIG_free(sign);
+  EC_POINT_free(point);
+  EC_KEY_free(eckey);
+
+  if (ret < 0) {
+    rlLOGE(TAG, "SM2VerifyMessage %s", ret == -1 ? "False" : "Error");
     ERR_print_errors_cb(
         [](const char* str, size_t len, void* u) {
           rlLOGE(TAG, "\t%s", str);

@@ -332,6 +332,22 @@ public:
                         const uint8_t R[32],
                         const uint8_t S[32]);
 
+ public:  // X509 证书验签原语(Interface/x509.cc 调用)...
+  /*! 标准 PKCS#1 v1.5(SHA256 DigestInfo)验签:设备走 COS rsa_pub, 宿主/模拟器走 TASSL RSA_verify。
+   *! signature 为非 const:设备端 rsa_pub 就地覆写(输入输出共用, master.cc 同款)。 */
+  virtual int RSAVerifyPkcs1(int bits,
+                             uint32_t exponent,
+                             const uint8_t modulus[256],
+                             const uint8_t hash[32],
+                             uint8_t signature[256]);
+  /*! SM2 变长消息验签:输入为原始消息 M(设备 COS 内部按 GM/T 0003 计算 e = SM3(Z_A||M)) */
+  virtual int SM2VerifyMessage(const uint8_t X[32],
+                               const uint8_t Y[32],
+                               const void* message,
+                               size_t size_message,
+                               const uint8_t R[32],
+                               const uint8_t S[32]);
+
  public:  // SM2 ECIES ...
   virtual int SM2Decrypt(int id, const uint8_t cipher[], size_t size_cipher, uint8_t text[], size_t* size_text);
   virtual int SM2Decrypt(const uint8_t private_[32],

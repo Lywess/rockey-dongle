@@ -342,6 +342,44 @@ int Dongle::RSAPublic(int bits,
   return result;
 }
 
+/*! 标准 PKCS#1 v1.5(SHA256 DigestInfo)验签:COS rsa_pub 解填充后返回裸 payload。
+ *! signature 会被就地覆写(rsa_pub 的输入输出共用, 与 master.cc 的 WorldPublic
+ *! 验签同款);X509 场景下证书本身就在 InOutBuf 暂存区, 覆写无害。
+ *! 真机检查点:COS 若自行剥离 DigestInfo 只返回 32B 摘要, 走 size_out==32 分支。 */
+int Dongle::RSAVerifyPkcs1(int bits, uint32_t exponent, const uint8_t modulus[256], const uint8_t hash[32], uint8_t signature[256]) {
+  RSA_PUBLIC_KEY pubkey;
+  WORD size_out = 256;
+
+  if (bits != 2048)
+    return last_error_ = -EINVAL;
+
+  pubkey.bits = bits;
+  pubkey.modulus = exponent;
+  memcpy(pubkey.exponent, modulus, 256);
+  if (BugCheckZeroInput(signature))
+    return -EINVAL;
+
+  int result = DONGLE_CHECK(rsa_pub(signature, 256, &pubkey, signature, &size_out, MODE_DECODE));
+  if (result >= 0) {
+    if (size_out == 51) {
+      /* DigestInfo ::= SEQUENCE { sha256 AlgId, OCTET STRING hash } 的 19B 前缀(立即数比对) */
+      if (signature[0] != 0x30 || signature[1] != 0x31 || signature[2] != 0x30 || signature[3] != 0x0D ||
+          signature[4] != 0x06 || signature[5] != 0x09 || signature[6] != 0x60 || signature[7] != 0x86 ||
+          signature[8] != 0x48 || signature[9] != 0x01 || signature[10] != 0x65 || signature[11] != 0x03 ||
+          signature[12] != 0x04 || signature[13] != 0x02 || signature[14] != 0x01 || signature[15] != 0x05 ||
+          signature[16] != 0x00 || signature[17] != 0x04 || signature[18] != 0x20 || 0 != memcmp(&signature[19], hash, 32)) {
+        result = -EBADMSG;
+      }
+    } else if (size_out == 32) {
+      if (0 != memcmp(signature, hash, 32))
+        result = -EBADMSG;
+    } else {
+      result = -EBADMSG;
+    }
+  }
+  return result;
+}
+
 int Dongle::P256Sign(int id, const uint8_t hash_[32], uint8_t R[32], uint8_t S[32]) {
   WORD len_sign = 64;
   uint8_t sign[64], hash[32];
@@ -426,6 +464,26 @@ int Dongle::SM2Verify(const uint8_t X[32],
   CopyReverse<32>(&sign[0], R);
   CopyReverse<32>(&sign[32], S);
   return DONGLE_CHECK(sm2_verify(&pubkey, hash, 32, sign));
+}
+
+/*! SM2 变长消息验签:COS 内部按 GM/T 0003 计算 e = SM3(Z_A || message),
+ *! 与 TASSL ECDSA_sm2_get_Z 语义一致(真机已验证)。X509 场景下 message =
+ *! tbsCertificate 原始 DER, 指针在 InOutBuf, COS 只以 ExtendBuf 为暂存, 输入安全。 */
+int Dongle::SM2VerifyMessage(const uint8_t X[32],
+                             const uint8_t Y[32],
+                             const void* message,
+                             size_t size_message,
+                             const uint8_t R[32],
+                             const uint8_t S[32]) override {
+  ECCSM2_PUBLIC_KEY pubkey;
+  uint8_t sign[64];
+
+  pubkey.bits = 0x8100;
+  CopyReverse<32>(pubkey.XCoordinate, X);
+  CopyReverse<32>(pubkey.YCoordinate, Y);
+  CopyReverse<32>(&sign[0], R);
+  CopyReverse<32>(&sign[32], S);
+  return DONGLE_CHECK(sm2_verify(&pubkey, const_cast<uint8_t*>(static_cast<const uint8_t*>(message)), static_cast<WORD>(size_message), sign));
 }
 
 int Dongle::SM2Decrypt(int id, const uint8_t cipher[], size_t size_cipher, uint8_t text[], size_t* size_text) override {
