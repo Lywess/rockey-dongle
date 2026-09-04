@@ -1,6 +1,6 @@
 # Rockey-Dongle 项目审查上下文记录
 
-> 本文件是 2026-09-01 ~ 2026-09-02 一次完整代码审查会话的工作上下文,供后续会话/接手人直接续接工作,避免重复分析。
+> 本文件是 2026-09-01 ~ 2026-09-02 一次完整代码审查会话的工作上下文,并持续维护至 2026-09-04(§9 复核、§10 后续提交),供后续会话/接手人直接续接工作,避免重复分析。
 > 配套交付物:`bug-analysis-report.html`(完整带样式报告,含图表)。
 
 ---
@@ -17,7 +17,8 @@
 ### 2.1 构建与模块结构
 - 平台:MCU 固件(arm-none-eabi,RockeyARM)/ Linux / Windows / Cygwin / aarch64-linux / WASM / wasmjs,自研 x4c 构建系统(`Build/`)。
 - **固件中 `Dongle` 的实现是 `Interface/rockey.cc`**(由 `Interface/xModule.mk:9-11` 选择);`dongle.cc` 是主机侧 USB 实现;`emulator.cc` 是模拟器实现。三个类同名,`secret.cc`/`master.cc`/`script.cc` 为共享成员函数。
-- 密码学有两套实现:`base/src/crypto.cc`(5,524 行,常量时间版本)与 `Interface/curve25519.cc`(2,429 行,慢速路径,**dongle 固件 VM 指令实际走这套**)。
+- 密码学有两套实现:`base/src/crypto.cc`(5,524 行,常量时间版本)与 `Interface/curve25519.cc`(当前 1,806 行,慢速路径,**dongle 固件 VM 指令实际走这套**;审查时 2,429 行,e3c7283 紧凑化净删 659 行,见 §10.2)。
+- **固件无除法约束(2026-09-04 发现)**:Cortex-M0 无硬件除法,/ 与 % 引入 `__aeabi_idiv → idivmod.o → crt.o → main` 依赖链,导致测试固件链接失败。固件侧拆包/打包/日期解析一律用移位序列递进替代除法(§10.2/§10.3,x509.cc 同样遵守)。
 
 ### 2.2 固件内存布局(定量核算结果)
 | 区域 | 地址/大小 | 说明 |
@@ -87,7 +88,7 @@ L-01 `grammar.ts:903/1481` 移位≥32 静默截断 · L-02 `grammar.ts:1101/101
 
 ## 5. 已验证无问题项(不要重复审查)
 
-- **算法数值正确性(-O1)**:SHA1/256/384/512(576 组多段含边界)、ChaCha20-Poly1305(RFC8439 + 419 组)、Ed25519(RFC8032 + 208 组,含确定性 nonce/clamping/常量时间比较)、X25519(RFC7748 全向量)、fe_*/sc_muladd/sc_reduce、micro-ecc 三曲线常数——全部与标准一致。**两份实现(crypto.cc 与 curve25519.cc)的 sc_reduce/sc_muladd 逐行等价**。
+- **算法数值正确性(-O1)**:SHA1/256/384/512(576 组多段含边界)、ChaCha20-Poly1305(RFC8439 + 419 组)、Ed25519(RFC8032 + 208 组,含确定性 nonce/clamping/常量时间比较)、X25519(RFC7748 全向量)、fe_*/sc_muladd/sc_reduce、micro-ecc 三曲线常数——全部与标准一致。**两份实现(crypto.cc 与 curve25519.cc)的 sc_reduce/sc_muladd 行为等价**——审查时逐行等价(ref10 全展开);e3c7283 后 curve25519.cc 侧为 21 位肢体循环版,等价性由 `__Testing__diff__` 差分模块持续保证(§10.2)。
 - C++ VM 运行时防护(栈深/地址/对齐/除零含 INT_MIN/-1/cycles/跳转边界)完备;scanner.cc(flex 移植)无泄漏无越界;ExtendBuf 三段复用时序安全;SM2 各缓冲边界核算无误;rbtree.cc/base.cc 日期算法/logWrite 布局核算无误。
 
 ## 6. 难度评估结论
@@ -168,7 +169,7 @@ L-01 `grammar.ts:903/1481` 移位≥32 静默截断 · L-02 `grammar.ts:1101/101
 **修复方案(已实测原型验证)**:
 1. **P0 sha512.cc W[80]→W[16] 滚动窗口** —— ✅ **已实施并验证(2026-09-03)**:帧 **1056→360**,与原型一致;违规路径 **32→8**(Secp256k1 2444→1748✓、P256 2356→1660✓、Ed25519-sha512 2204→1508✓,剩余 8 条均为 Ed25519 ge 路由 2160B/超128,待方案 2/3)。验证:①aarch64 __Testing__25519__(RFC8032)/sha256/micro_ecc 全 0 错误;②foobar 模拟器 __Testing__dongle__ 端到端 0 错误;③直接向量 4808/4808(长度 0..600 一次性+8 种分段边界+SHA-384 抽查,对 Python hashlib 全一致)。注:process 代码 2512B(原型 914B 因假常量偏小,真 64bit 常量在 M0 需更多指令物化);.bin 恒 65520B(定长镜像,空闲随机填充)。W16 索引:i-2≡i+14, i-7≡i+9, i-15≡i+1, i-16≡i (mod 16)。
 2. **P0 curve25519.cc Helper 联合体死区放 Sha512Ctx** —— ✅ **已实施并验证(2026-09-03)**:union{q|qc+p1p1} 新增 `alignas(Sha512Ctx) uint8_t sha512_ctx_[sizeof(Sha512Ctx)]`(240B≤320B) + `Sha512Ctx& sha512_ctx()` 访问器(reinterpret_cast,与 ExtendBuf 静态转换同一惯用法);替换 ComputePubkey/Verify/Sign 共 5 处 `Sha512Ctx()` 栈临时(死区断言已逐一核实:ge_frombytes_vartime 仅用栈 fe 局部量,不触 q/qc/p1p1;哈希输出 az/nonce/hram 均在 Helper 偏移≥800,与 ctx(偏移 0)无别名)。帧:Sign **592→344**、Verify **568→368**、ComputePubkey **272→32**;static_assert(sizeof(Helper)≤1024) 通过。**全链重扫描:违规路径 8→0;稳态最大深度 1928B/预算 2032B(余量 104B,最深链 = Verify→ge_scalarmult→ge_add→ge_p1p1_to_p3→fe_mul)**。验证:aarch64 __Testing__25519__(RFC8032)/sha256 0 错误;foobar 模拟器 __Testing__dongle__/__Testing__25519__ 0 错误。
-3. **P1 sc_muladd/ge_frombytes_vartime 强制 noinline + Verify 免拷贝** —— ✅ **已实施并验证(2026-09-03,比原计划更简)**:关键洞察——sc_muladd 只在 Sign 末尾执行、ge_frombytes 只在 Verify 开头执行,与 ge 链**时序不重叠**,独立成帧即可,无需 Helper 工作区搬迁。改动:① `sc_muladd` + `__attribute__((noinline))`(独立帧实测 336B,Sign 344→**40**);② `ge_frombytes_vartime` + noinline(独立帧 344B,Verify 368→**224**);③ Verify 删除 rcopy/scopy(全程只读 signature,直接用 signature/signature+32)。**最终:违规 0,稳态最大深度 1784B/2032B,余量 248B**(最深链 Verify→ge_scalarmult→ge_add→ge_p1p1_to_p3→fe_mul)。验证:aarch64 25519/sha256 0 错误;foobar dongle/25519 0 错误。注:noinline 属性对 wasm(emscripten/clang)同样有效,但 wasm 目标本机未构建验证。
+3. **P1 sc_muladd/ge_frombytes_vartime 强制 noinline + Verify 免拷贝** —— ✅ **已实施并验证(2026-09-03,比原计划更简)**:关键洞察——sc_muladd 只在 Sign 末尾执行、ge_frombytes 只在 Verify 开头执行,与 ge 链**时序不重叠**,独立成帧即可,无需 Helper 工作区搬迁。改动:① `sc_muladd` + `__attribute__((noinline))`(独立帧实测 336B,Sign 344→**40**;2026-09-04 e3c7283 紧凑化后 sc_muladd 帧 336→**400B**、sc_reduce 328→**232B**,stack-check 复核 0 违规);② `ge_frombytes_vartime` + noinline(独立帧 344B,Verify 368→**224**);③ Verify 删除 rcopy/scopy(全程只读 signature,直接用 signature/signature+32)。**最终:违规 0,稳态最大深度 1784B/2032B,余量 248B**(最深链 Verify→ge_scalarmult→ge_add→ge_p1p1_to_p3→fe_mul)。验证:aarch64 25519/sha256 0 错误;foobar dongle/25519 0 错误。注:noinline 属性对 wasm(emscripten/clang)同样有效,但 wasm 目标本机未构建验证。
 4. 备选(余量不足时):ge_scalarmult 528B 疑含 `*R=A`/`A=*point` 结构拷贝的 160B 栈临时(×2)+inlined ge_p2_dbl t0,改 fe_copy×4 或逐成员赋值估计 -300;fe_mul 392 串行化(滚动进位,活跃值 20→6)估计 -200;Verify 的 rcopy/scopy 可直接用 signature±32 免拷贝 -64。
 5. 验证:__Testing__sha256__ + RFC 6234 向量 + __Testing__25519__(RFC 8032)+ make dongle 后重跑 /tmp/stack-analysis 全链扫描确认 0 违规。
 
@@ -231,3 +232,28 @@ L-01 `grammar.ts:903/1481` 移位≥32 静默截断 · L-02 `grammar.ts:1101/101
 - 结果与基线预期**逐项一致,无回归**:i1 3→0(全新镜像 Delete 失败 3 次归零);i2 两轮 0(H-09 无回归);i4/i6/i7 首轮 3/2/2 错(全新镜像删除不存在文件)二轮归零;i8 二轮 16 错(文档记录既有状态累积,精确匹配);i9/F 长测试 0 错;i10-i16 全 0。
 - i17(PKeyCountDownTest)两轮稳定 3 错:未传 argv_[1] 时跳过密钥文件创建,SM2Sign(1)/P256Sign(2)/RSAPrivate(3) ENOENT ×3——确定性既有行为(§9.1 "除 index=2 外全部索引两版本一致"涵盖此项)。
 - 结论:R6 修复 + warn_unused_result 强制 + 警告清零批次(31f41fe)无协议回归。
+
+## 10. 2026-09-04 后续提交记录(7f9f9f6 之后)
+
+> 以下三个提交晚于本文件上次更新(7f9f9f6,其 ai-context.md 内容即 §9.3/§9.4;7f9f9f6 附带的 secret.cc 改动仅为 R6 链式派生注释,见 §9.2 R6 条)。
+
+### 10.1 11e2757 消除 Windows 编译警告
+
+- micro-ecc `platform-specific.inc` **Windows 分支** default_RNG 加 `__attribute__((unused))`(Linux 分支同类修复在 31f41fe,§9.3)。
+
+### 10.2 e3c7283 Ed25519 标量运算紧凑化(固件 ROM −12.5KB)
+
+- curve25519.cc:ref10 全展开 64 位 sc_muladd(8.8KB)与 x25519_sc_reduce(5.0KB)改写为 **21 位肢体循环版**(+145/−804 行,算法逐字节等价);RockeyTrust text **61528B → 49024B**,为 X509 接入腾空间。
+- 拆包/打包用增量递进(移位序列 0,5,2,7,4,1,6,3 循环)替代除法——即 §2.1 无除法约束的来源;肢体保持 int64_t(折叠含 `-=`,依赖算术右移语义)。
+- 栈帧:sc_muladd **336→400B**、sc_reduce **328→232B**,stack-check 复核 0 违规(§7 方案 3 已加注)。
+- 新增 `src/__Testing__/__diff__/` 交叉验证模块(172 行):RFC 8032 Ed25519 向量经 dongle 路径逐字节匹配;RFC 7748 X25519 向量 1 匹配;**向量 2(非规范输入)两实现共享既有偏差**(不做 mod-p 归约,差 19),断言与 crypto.cc 行为一致;1000 轮随机签名/验签/公钥/共享密钥与 crypto.cc 双向差分。
+
+### 10.3 d3ec243 X509 证书验签原语(设备端基础原语)
+
+- 新增 `Interface/x509.{h,cc}`(815/107 行),编入 LOCAL_SRC_FILES(xModule.mk);dongle/emulator/rockey 三实现各加 X509 入口(+85/+85/+58);dongle.h 新增 `RSAVerifyPkcs1`/`SM2VerifyMessage` 虚函数(设备端 signature 就地覆写,输入输出共用,master.cc 同款)。
+- **严格 DER 解析**:≤1KB 证书就地零拷贝;拒绝 indefinite/非规范编码/尾随字节/负 INTEGER。
+- API:`X509Parse / X509VerifySignature / X509VerifySelfSigned / X509ExtNext / X509CheckTime / X509GetPublicKey` + 9 个 `X509OID_*` 判断。
+- **验签全走硬件/宿主库**:RSA2048-SHA256(FTRX rsa_pub / TASSL RSA_verify)、P256-SHA256(FTRX ecc_verify / TASSL)、SM2-SM3(FTRX sm2_verify / TASSL EVP_SM2 别名路径,e = SM3(Z_A||tbs) 标准语义)。
+- 设计要点:时间检查只置警告位(设备 RTC 不可靠);遵守固件无 rodata/无除法约束(OID 立即数比对、拆包/日期解析无 / 与 %)。
+- 新增 `src/__Testing__/__x509__/`(320 行):TASSL 生成 RSA/P256/SM2 CA+叶证书,正反例与 OpenSSL X509_verify 对照 0 错误;stack-check 0 违规。
+- **⏳ 待办:脚本层 OpCode 尚未接入(用户后续接入)**;接入后固件 text 增量约 3.5–4KB,余量充足。
